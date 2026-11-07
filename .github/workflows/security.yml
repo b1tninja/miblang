@@ -1,0 +1,25 @@
+name: security
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 4 * * 2"
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -e ".[dev]" pip-audit
+      # The resolved environment is audited rather than the declarations, because the
+      # declarations are floors. A file is written by a script rather than shell
+      # redirection so the step behaves identically on a self-hosted runner.
+      - run: python tools/write_freeze.py requirements-audit.txt
+      # The audit reads the versions already installed above and installs nothing itself:
+      # --no-deps and --disable-pip stop pip-audit from resolving the list in a fresh
+      # environment, which is how it used to end up cloning a repository instead of auditing.
+      - run: python -m pip_audit --progress-spinner off --no-deps --disable-pip -r requirements-audit.txt

@@ -1,0 +1,45 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -e ".[dev]"
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: mypy miblang
+      # check_dist inspects a built wheel, so the wheel is built here rather than assumed to exist.
+      # The step looked green for months on one machine because an earlier manual build had left a
+      # wheel in dist/: a cache impersonating a check, and the first CI run this project ever had
+      # failed it immediately.
+      - run: python -m pip install build
+      - run: python -m build --wheel --quiet
+      - run: python tools/check_dist.py
+
+  test:
+    # A socket option that exists only on Linux is exactly the bug a Linux-only CI never
+    # sees, and multicast, UDP send buffers and interface enumeration differ per platform.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.12", "3.13", "3.14"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m pytest -q --cov
+      # Asserts stripped: a wire path guarded by assert is unguarded in production.
+      - run: python -O -m pytest -q
