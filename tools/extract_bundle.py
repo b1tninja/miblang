@@ -4,6 +4,14 @@
     python tools/extract_bundle.py                        # the corpus the rfclib MCP server uses
     python tools/extract_bundle.py <mirror-dir>           # or the directory holding rfc1155.txt, rfc2578.txt, ...
     python tools/extract_bundle.py [<mirror-dir>] --check # exit 1 when the bundle differs
+    python tools/extract_bundle.py --fetch --check        # the CI form: no rfclib needed
+
+``--fetch`` reads the RFC text from a cache outside the repository (``$MIBLANG_DATA_CACHE``, else the user cache
+directory, then ``rfc``), filling what is missing from ``https://www.rfc-editor.org/rfc/rfc<N>.txt`` at one
+request per second. Each file is pinned by the sha256 the committed ``MANIFEST.json`` records and by the size in
+``RFC_SIZES``; a download that matches neither is discarded and the run fails, so a changed upstream file is a
+decision and not a surprise. The seven RFC Editor files were measured on 2026-11-13 to have the same bytes as the
+rfclib mirror the manifest was first written from. RFC text is not vendored: it is the cache's, not the repository's.
 
 With no directory the RFC text is read from the corpus rfclib already holds, read only: ``$RFCLIB_HOME/mirror/rfc``
 when that variable is set (it is, in rfclibrary's own ``.mcp.json``, the server's configuration), else the
@@ -27,9 +35,25 @@ import json
 import os
 import re
 import sys
+import tempfile
+import time
+import urllib.request
 from pathlib import Path
 
 DATA = Path(__file__).resolve().parents[1] / "miblang" / "data"
+RFC_SITE = "https://www.rfc-editor.org/rfc/"
+USER_AGENT = "portfolio-fetch/1"  # plain, no personal detail
+INTERVAL = 1.0  # seconds between requests
+#: Octet size of each RFC Editor text file the bundle is cut from (measured 2026-11-13).
+RFC_SIZES = {
+    1155: 39693,
+    1213: 142158,
+    2578: 89864,
+    2579: 59020,
+    2580: 54234,
+    2863: 155014,
+    3418: 49096,
+}
 
 # name, rfc, first line, last line (1-based, inclusive in the RFC's .txt), status per rfclib on 2026-11-13,
 # and the verified errata that touch the module text (not applied).
@@ -117,6 +141,71 @@ def default_mirror() -> Path:
     return base / "mirror" / "rfc"
 
 
+def cache_dir() -> Path:
+    """The cache the RFC text is kept in: ``<cache>/rfc``, beside the IANA modules' ``<cache>/iana``."""
+    override = os.environ.get("MIBLANG_DATA_CACHE")
+    if override:
+        root = Path(override)
+    elif sys.platform == "win32":
+        root = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "miblang-data"
+    else:
+        root = Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache"))) / "miblang-data"
+    return root / "rfc"
+
+
+def pinned_hashes() -> dict[int, str]:
+    """The sha256 of each RFC text file, as the committed manifest records it."""
+    entries = json.loads((DATA / "MANIFEST.json").read_text(encoding="ascii"))
+    return {int(e["rfc"]): str(e["rfc_txt_sha256"]) for e in entries}
+
+
+def check_rfc(path: Path, rfc: int, digest: str) -> str | None:
+    """None when ``path`` is the pinned RFC text, else why it is not."""
+    if not path.is_file():
+        return "not in the cache"
+    data = path.read_bytes()
+    if len(data) != RFC_SIZES[rfc]:
+        return f"size {len(data)}, pinned {RFC_SIZES[rfc]}"
+    if hashlib.sha256(data).hexdigest() != digest:
+        return "sha256 differs from the manifest's"
+    return None
+
+
+def fetch_rfcs(root: Path | None = None, *, network: bool = True) -> Path:
+    """Make sure every RFC the bundle is cut from is in the cache and matches its pin; return the cache.
+
+    Missing or mismatched files are fetched when ``network`` is true, one request per second, into a temporary
+    file that is installed only when it matches. Raises :class:`SystemExit` naming the file when it cannot."""
+    root = root or cache_dir()
+    root.mkdir(parents=True, exist_ok=True)
+    pins = pinned_hashes()
+    first = True
+    for module in MODULES:
+        rfc = module[1]
+        target = root / f"rfc{rfc}.txt"
+        if check_rfc(target, rfc, pins[rfc]) is None:
+            continue
+        if not network:
+            raise SystemExit(f"{target}: {check_rfc(target, rfc, pins[rfc])}; run with --fetch")
+        if not first:
+            time.sleep(INTERVAL)
+        first = False
+        request = urllib.request.Request(  # noqa: S310 - https, fixed host
+            f"{RFC_SITE}rfc{rfc}.txt", headers={"User-Agent": USER_AGENT}
+        )
+        with urllib.request.urlopen(request, timeout=60) as response:  # noqa: S310
+            data = response.read(RFC_SIZES[rfc] + 1)
+        with tempfile.NamedTemporaryFile(dir=root, delete=False) as handle:
+            handle.write(data)
+            temporary = Path(handle.name)
+        problem = check_rfc(temporary, rfc, pins[rfc])
+        if problem is not None:
+            temporary.unlink()
+            raise SystemExit(f"rfc{rfc}.txt from {RFC_SITE}: {problem}; not installed")
+        temporary.replace(target)
+    return root
+
+
 def build(mirror: Path) -> dict[str, str]:
     files: dict[str, str] = {}
     manifest = []
@@ -148,7 +237,13 @@ def main(argv: list[str]) -> int:
     if "--help" in argv or "-h" in argv:
         print(__doc__)
         return 2
-    files = build(Path(paths[0]) if paths else default_mirror())
+    if "--fetch" in argv:
+        if paths:
+            raise SystemExit("--fetch reads its own cache: give no directory")
+        source = fetch_rfcs()
+    else:
+        source = Path(paths[0]) if paths else default_mirror()
+    files = build(source)
     if "--check" in argv:
         bad = [
             n

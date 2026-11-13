@@ -24,6 +24,11 @@ jobs:
       - run: python -m pip install build
       - run: python -m build --wheel --quiet
       - run: python tools/check_dist.py
+      # The bundled SMI modules are cut from RFC Editor text. This fetches the seven RFCs into the runner's
+      # cache, checks each against the sha256 and size pinned in the repository, and fails when the bundle
+      # in miblang/data differs from what the tool cuts: the bundle is checked against its source in CI,
+      # not only against a developer's rfclib mirror.
+      - run: python tools/extract_bundle.py --fetch --check
 
   test:
     # A socket option that exists only on Linux is exactly the bug a Linux-only CI never

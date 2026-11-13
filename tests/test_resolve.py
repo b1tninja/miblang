@@ -8,7 +8,16 @@ import hashlib
 import pytest
 
 from miblang import bundled
-from miblang.resolve import Mib, ResolveError, index, load, parse_oid, provenance, resolve
+from miblang.resolve import (
+    Mib,
+    ResolveError,
+    index,
+    load,
+    parse_oid,
+    provenance,
+    resolve,
+    revision_key,
+)
 
 TEST_MIB = """
 TEST-MIB DEFINITIONS ::= BEGIN
@@ -396,3 +405,186 @@ def test_provenance_file_modules(tmp_path):
     assert unknown.sha256 is None
     assert unknown.revision == "202611130000Z"
     assert "no provenance recorded" in unknown.note
+
+
+# --- SMIv1 TRAP-TYPE placed in the tree (RFC 1215 2.1.5, RFC 3584 3.1) ------------------------------------
+
+# The two usage examples of RFC 1215 2.2 (read through rfclib 2026-11-13), the second as the standard traps.
+TRAPS_MIB = """
+TRAPS-MIB DEFINITIONS ::= BEGIN
+IMPORTS enterprises FROM RFC1155-SMI
+        snmp FROM RFC1213-MIB
+        TRAP-TYPE FROM RFC-1215;
+
+myEnterprise OBJECT IDENTIFIER ::= { enterprises 9999 }
+
+myLinkDown TRAP-TYPE
+    ENTERPRISE  myEnterprise
+    VARIABLES   { ifIndex }
+    DESCRIPTION "a link failed"
+    ::= 2
+
+coldStart TRAP-TYPE ENTERPRISE snmp DESCRIPTION "cold" ::= 0
+warmStart TRAP-TYPE ENTERPRISE snmp DESCRIPTION "warm" ::= 1
+linkDown TRAP-TYPE ENTERPRISE snmp VARIABLES { ifIndex } DESCRIPTION "down" ::= 2
+linkUp TRAP-TYPE ENTERPRISE snmp VARIABLES { ifIndex } DESCRIPTION "up" ::= 3
+authenticationFailure TRAP-TYPE ENTERPRISE snmp DESCRIPTION "auth" ::= 4
+egpNeighborLoss TRAP-TYPE ENTERPRISE snmp VARIABLES { egpNeighAddr } DESCRIPTION "egp" ::= 5
+END
+"""
+
+
+def test_trap_oid():
+    mib = Mib.with_bundled()
+    mib.add_text(TRAPS_MIB)
+    # an enterprise-specific trap is enterprise.0.specific-trap (RFC 3584 3.1 item 2)
+    mine = mib.resolve("myLinkDown")
+    assert mine.kind == "trap-type"
+    assert mine.dotted == "1.3.6.1.4.1.9999.0.2"
+    assert mine.is_notification
+    assert mine.edition is None  # an SMIv1 module has no MODULE-IDENTITY
+    # a generic trap is snmpTraps.(generic-trap + 1) (RFC 3584 3.1 item 3, its table)
+    expected = {
+        "coldStart": "1.3.6.1.6.3.1.1.5.1",
+        "warmStart": "1.3.6.1.6.3.1.1.5.2",
+        "linkDown": "1.3.6.1.6.3.1.1.5.3",
+        "linkUp": "1.3.6.1.6.3.1.1.5.4",
+        "authenticationFailure": "1.3.6.1.6.3.1.1.5.5",
+        "egpNeighborLoss": "1.3.6.1.6.3.1.1.5.6",
+    }
+    for name, oid in expected.items():
+        assert mib.resolve(name).dotted == oid, name
+    # the OID answers back to the trap, the way a received snmpTrapOID would be looked up
+    assert mib.resolve("1.3.6.1.4.1.9999.0.2").name == "myLinkDown"
+    assert mib.resolve("1.3.6.1.6.3.1.1.5.3").name == "linkDown"
+    assert mib.resolve("TRAPS-MIB::linkUp").oid == (1, 3, 6, 1, 6, 3, 1, 1, 5, 4)
+    assert not [p for p in mib.problems if "TRAPS-MIB" in p and "ifIndex" not in p]
+
+
+def test_a_generic_trap_number_above_five_is_refused_not_guessed():
+    mib = Mib.with_bundled()
+    mib.add_text(
+        TRAPS_MIB.replace("egpNeighborLoss TRAP-TYPE", "bogus TRAP-TYPE").replace("::= 5", "::= 6")
+    )
+    with pytest.raises(ResolveError):
+        mib.resolve("bogus")
+    assert any("generic trap" in p for p in mib.problems)
+
+
+def test_a_trap_with_an_unresolvable_enterprise_is_reported():
+    mib = Mib.with_bundled()
+    mib.add_text(TRAPS_MIB.replace("ENTERPRISE  myEnterprise", "ENTERPRISE  nowhere"))
+    with pytest.raises(ResolveError):
+        mib.resolve("myLinkDown")
+    assert any("nowhere" in p for p in mib.problems)
+
+
+# --- two editions of one module (RFC 2578 2, 5.1, 5.5) ------------------------------------------------------
+
+
+def _edition(last_updated: str, *, extra: bool = False, revision: str | None = None) -> str:
+    body = ""
+    if extra:
+        body = """
+exTwo OBJECT-TYPE SYNTAX Integer32 MAX-ACCESS read-only STATUS current DESCRIPTION "added later"
+    ::= { exMIB 2 }"""
+    return f"""
+EX-MIB DEFINITIONS ::= BEGIN
+IMPORTS MODULE-IDENTITY, OBJECT-TYPE, Integer32, enterprises FROM SNMPv2-SMI;
+exMIB MODULE-IDENTITY
+    LAST-UPDATED "{last_updated}"
+    ORGANIZATION "x"
+    CONTACT-INFO "x"
+    DESCRIPTION "x"
+    REVISION "{revision or last_updated}"
+    DESCRIPTION "r"
+    ::= {{ enterprises 4242 }}
+exOne OBJECT-TYPE SYNTAX Integer32 MAX-ACCESS read-only STATUS current DESCRIPTION "x"
+    ::= {{ exMIB 1 }}{body}
+END
+"""
+
+
+def test_two_editions_of_one_module():
+    mib = Mib.with_bundled()
+    mib.add_text(_edition("200101010000Z"))
+    mib.add_text(_edition("200507010000Z", extra=True))
+    assert mib.editions("EX-MIB") == ("200507010000Z", "200101010000Z")
+    assert mib.resolve("exOne").edition == "200507010000Z"  # the edition is on every answer
+    assert mib.resolve("exTwo").edition == "200507010000Z"
+    assert mib.provenance("1.3.6.1.4.1.4242.2").revision == "200507010000Z"
+    assert mib.modules.count("EX-MIB") == 1
+    assert not [p for p in mib.problems if "EX-MIB" in p]
+
+
+def test_the_latest_last_updated_answers_even_when_it_was_added_first():
+    mib = Mib.with_bundled()
+    mib.add_text(_edition("200507010000Z", extra=True))
+    mib.add_text(_edition("200101010000Z"))
+    assert mib.resolve("exTwo").edition == "200507010000Z"
+    assert mib.editions("EX-MIB") == ("200507010000Z", "200101010000Z")
+    # nothing is silent: the problem says which edition answers and why
+    assert any("EX-MIB" in p and "200507010000Z answers" in p for p in mib.problems)
+
+
+def test_choosing_an_edition_gives_a_copy_that_answers_from_it():
+    mib = Mib.with_bundled()
+    mib.add_text(_edition("200101010000Z"))
+    mib.add_text(_edition("200507010000Z", extra=True))
+    older = mib.at_edition("EX-MIB", "200101010000Z")
+    assert older.resolve("exOne").edition == "200101010000Z"
+    with pytest.raises(ResolveError):
+        older.resolve("exTwo")  # not in the older edition
+    assert mib.resolve("exTwo")  # the original is untouched
+    # the two ExtUTCTime spellings of one date are one edition: 1998-05-01 as YYMMDDHHMMZ and YYYYMMDDHHMMZ
+    legacy = Mib.with_bundled()
+    legacy.add_text(_edition("9805010000Z"))
+    assert legacy.at_edition("EX-MIB", "199805010000Z").resolve("exOne").edition == "9805010000Z"
+    with pytest.raises(ResolveError, match="no loaded edition"):
+        mib.at_edition("EX-MIB", "199901010000Z")
+    with pytest.raises(ResolveError, match="not loaded"):
+        mib.at_edition("NOPE-MIB", "200101010000Z")
+
+
+def test_two_digit_years_are_nineteen_hundreds_and_four_digit_years_are_any():
+    # RFC 2578 2: YY is "only years between 1900-1999", YYYY is "any year"
+    assert revision_key("9805010000Z") == (1998, 5, 1, 0, 0)
+    assert revision_key("200507010930Z") == (2005, 7, 1, 9, 30)
+    for bad in (
+        None,
+        "",
+        "20050701Z",
+        "200513010000Z",
+        "200507010960Z",
+        "2005070100000Z",
+        "200507010000",
+    ):
+        assert revision_key(bad) is None
+    mib = Mib.with_bundled()
+    mib.add_text(_edition("9912310000Z"))  # 1999
+    mib.add_text(_edition("200001010000Z"))  # 2000 is later, though "00" sorts below "99" as text
+    assert mib.resolve("exOne").edition == "200001010000Z"
+
+
+def test_equal_editions_the_last_added_answers_and_a_conflict_is_reported():
+    mib = Mib.with_bundled()
+    mib.add_text(_edition("200101010000Z"))
+    mib.add_text(_edition("200101010000Z", extra=True))  # same LAST-UPDATED, different text
+    assert mib.resolve("exTwo").edition == "200101010000Z"
+    assert any("share LAST-UPDATED" in p for p in mib.problems)
+    # the identical text added again is one edition, not a conflict
+    again = Mib.with_bundled()
+    again.add_text(_edition("200101010000Z"))
+    again.add_text(_edition("200101010000Z"))
+    assert again.editions("EX-MIB") == ("200101010000Z",)
+    assert not [p for p in again.problems if "EX-MIB" in p]
+
+
+def test_a_module_with_no_identity_loses_to_one_with_a_last_updated():
+    smiv1 = "EX-MIB DEFINITIONS ::= BEGIN\nIMPORTS enterprises FROM RFC1155-SMI;\nexMIB OBJECT IDENTIFIER ::= { enterprises 4242 }\nEND\n"
+    mib = Mib.with_bundled()
+    mib.add_text(_edition("200101010000Z"))
+    mib.add_text(smiv1)  # added last, but it has no LAST-UPDATED to rank by
+    assert mib.editions("EX-MIB") == ("200101010000Z", None)
+    assert mib.resolve("exOne").edition == "200101010000Z"
+    assert mib.at_edition("EX-MIB", None).resolve("exMIB").edition is None

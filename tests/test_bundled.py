@@ -305,3 +305,81 @@ def test_the_bundle_matches_what_extract_bundle_cuts_from_the_rfclib_corpus():
     assert sorted(files) == sorted([*(f"{n}.mib" for n in EXPECTED), "MANIFEST.json"])
     for name, text in files.items():
         assert (DATA / name).read_bytes() == text.encode("ascii"), name
+
+
+def _extract_tool():
+    spec = importlib.util.spec_from_file_location(
+        "extract_bundle_fetch",
+        pathlib.Path(__file__).resolve().parents[1] / "tools" / "extract_bundle.py",
+    )
+    assert spec is not None
+    assert spec.loader is not None
+    tool = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(tool)
+    return tool
+
+
+def test_the_bundle_matches_what_is_cut_from_the_pinned_rfc_editor_text():
+    """``extract_bundle.py --fetch --check``, the CI form: the RFC text comes from a cache outside the
+    repository, each file pinned by the manifest's sha256 and the tool's size, and the bundle is rebuilt from it
+    byte for byte. This test never touches the network; it skips loudly when the cache is not filled."""
+    tool = _extract_tool()
+    root = tool.cache_dir()
+    pins = tool.pinned_hashes()
+    for _, rfc, *_ in tool.MODULES:
+        problem = tool.check_rfc(root / f"rfc{rfc}.txt", rfc, pins[rfc])
+        if problem is not None:
+            pytest.skip(
+                f"SKIPPED LOUDLY: rfc{rfc}.txt in {root}: {problem}; run tools/extract_bundle.py --fetch --check"
+            )
+    files = tool.build(tool.fetch_rfcs(root, network=False))
+    assert sorted(files) == sorted([*(f"{n}.mib" for n in EXPECTED), "MANIFEST.json"])
+    for name, text in files.items():
+        assert (DATA / name).read_bytes() == text.encode("ascii"), name
+
+
+def test_every_rfc_the_bundle_is_cut_from_has_a_pinned_size_and_hash():
+    tool = _extract_tool()
+    rfcs = {module[1] for module in tool.MODULES}
+    assert rfcs == set(tool.RFC_SIZES)
+    assert rfcs == set(tool.pinned_hashes())
+    assert all(len(h) == 64 for h in tool.pinned_hashes().values())
+
+
+def test_a_download_that_does_not_match_its_pin_is_discarded_not_installed(tmp_path, monkeypatch):
+    tool = _extract_tool()
+    monkeypatch.setattr(tool, "INTERVAL", 0.0)
+
+    class Reply:
+        def __init__(self, data: bytes) -> None:
+            self.data = data
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self, limit: int) -> bytes:
+            return self.data[:limit]
+
+    asked = []
+
+    def wrong(request, timeout):
+        asked.append(request.full_url)
+        return Reply(b"x" * tool.RFC_SIZES[1155])  # the right size, the wrong bytes
+
+    monkeypatch.setattr(tool.urllib.request, "urlopen", wrong)
+    with pytest.raises(SystemExit, match="sha256 differs"):
+        tool.fetch_rfcs(tmp_path)
+    assert asked == ["https://www.rfc-editor.org/rfc/rfc1155.txt"]  # stopped at the first bad file
+    assert list(tmp_path.iterdir()) == []  # nothing installed, and the temporary file is gone
+
+    def short(request, timeout):
+        return Reply(b"short")
+
+    monkeypatch.setattr(tool.urllib.request, "urlopen", short)
+    with pytest.raises(SystemExit, match="size 5"):
+        tool.fetch_rfcs(tmp_path)
+    with pytest.raises(SystemExit, match="not in the cache"):
+        tool.fetch_rfcs(tmp_path, network=False)

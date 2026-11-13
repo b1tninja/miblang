@@ -14,11 +14,23 @@ A ``Mib`` holds parsed modules (``grammar.Module``), resolves every OID-valued d
 Nothing here guesses. A name that cannot be resolved is recorded in ``Mib.problems`` and left out of the
 tree; a symbol defined in more than one loaded module needs a ``MODULE::`` prefix, and ``resolve`` says
 so rather than choosing one.
+
+Editions: a ``Mib`` may hold several editions of one module name (``Mib.add`` keeps each). The edition with the
+latest LAST-UPDATED (RFC 2578 2, ExtUTCTime: ``YYMMDDHHMMZ`` for 1900 to 1999 or ``YYYYMMDDHHMMZ``) answers;
+among equal ones the one added last does, and a module with no MODULE-IDENTITY (SMIv1) has no LAST-UPDATED, so
+it loses to one that has. Every ``Object`` carries the ``edition`` it came from, ``Mib.editions`` lists what is
+loaded and ``Mib.at_edition`` answers from a chosen edition. A kept edition that is not the one added last, and
+two editions that share a LAST-UPDATED but differ, are reported in ``Mib.problems``.
+
+SMIv1 traps: a TRAP-TYPE is placed in the tree as the notification SNMPv2 gives it (RFC 3584 3.1): the
+enterprise, then ``0``, then the trap number; a trap whose ENTERPRISE is ``snmp`` (``{ mib-2 11 }``) names a
+generic trap, whose number 0 to 5 maps to ``snmpTraps`` 1 to 6 (RFC 1215 2.1.5, RFC 3584 3.1).
 """
 
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -40,6 +52,7 @@ from .grammar import (
     Oid,
     Syntax,
     TextualConvention,
+    TrapType,
     TypeAssignment,
     parse,
 )
@@ -61,6 +74,7 @@ __all__ = [
     "parse_oid",
     "provenance",
     "resolve",
+    "revision_key",
 ]
 
 # ASN.1 root arcs, which an OBJECT IDENTIFIER value may name without defining them (RFC 2578 3.5 builds
@@ -93,6 +107,30 @@ _BUILTIN_PRIMITIVE = {
     "IpAddress": "OCTET STRING",
     "Opaque": "OCTET STRING",
 }
+_SNMP_GROUP = (
+    1,
+    3,
+    6,
+    1,
+    2,
+    1,
+    11,
+)  # snmp ::= { mib-2 11 }, the ENTERPRISE of a generic trap (RFC 1215 2.1.1)
+_SNMP_TRAPS = (
+    1,
+    3,
+    6,
+    1,
+    6,
+    3,
+    1,
+    1,
+    5,
+)  # snmpTraps (RFC 3418 2): generic trap n is snmpTraps.(n + 1)
+_GENERIC_TRAPS = range(
+    6
+)  # coldStart(0) to egpNeighborLoss(5); enterpriseSpecific(6) is the other way
+_EXT_UTC_TIME = re.compile(r"(\d{2}|\d{4})(\d{2})(\d{2})(\d{2})(\d{2})Z")
 _MAX_SUBID = 2**32 - 1  # RFC 2578 3.5
 _MAX_OID_LENGTH = 4096  # a local bound against hostile input, not a protocol limit
 
@@ -132,6 +170,20 @@ def parse_oid(text: str) -> tuple[int, ...]:
             raise ResolveError(f"not a dotted OID: {text[:60]!r}")
         out.append(int(part))
     return tuple(out)
+
+
+def revision_key(text: str | None) -> tuple[int, int, int, int, int] | None:
+    """A LAST-UPDATED value as (year, month, day, hour, minute), or None when it is absent or not an
+    ExtUTCTime: ``YYMMDDHHMMZ`` (1900 to 1999 only) or ``YYYYMMDDHHMMZ`` (RFC 2578 2)."""
+    found = _EXT_UTC_TIME.fullmatch(text or "")
+    if found is None:
+        return None
+    year, month, day, hour, minute = (int(g) for g in found.groups())
+    if len(found.group(1)) == 2:
+        year += 1900
+    if not (1 <= month <= 12 and 1 <= day <= 31 and hour <= 23 and minute <= 59):
+        return None
+    return year, month, day, hour, minute
 
 
 def _dotted(oid: tuple[int, ...]) -> str:
@@ -174,7 +226,9 @@ class Object:
     """A named node with a number path, plus what its definition says about it.
 
     ``role`` is ``scalar``, ``table``, ``row`` or ``column`` for an OBJECT-TYPE (RFC 2578 7.10: a table
-    holds exactly one row, a row holds columns) and None for any other kind.
+    holds exactly one row, a row holds columns) and None for any other kind. ``edition`` is the LAST-UPDATED
+    of the module edition that answered, None for a module with no MODULE-IDENTITY. ``kind`` is
+    ``trap-type`` for an SMIv1 TRAP-TYPE, whose ``oid`` is the notification it becomes (RFC 3584 3.1).
     """
 
     name: str
@@ -185,6 +239,7 @@ class Object:
     role: str | None = None
     type: TypeInfo | None = None
     smi: int | None = None
+    edition: str | None = None
 
     @property
     def dotted(self) -> str:
@@ -211,7 +266,7 @@ class Object:
 
     @property
     def is_notification(self) -> bool:
-        return self.kind in {"notification-type", "notification-group"}
+        return self.kind in {"notification-type", "notification-group", "trap-type"}
 
     @property
     def smiv2_only(self) -> bool:
@@ -279,6 +334,9 @@ class Mib:
         self._by_name: dict[str, list[Object]] = {}
         self._oid_memo: dict[tuple[str, str], tuple[int, ...] | None] = {}
         self._origin: dict[str, tuple[str | None, str | None]] = {}
+        self._editions: dict[str, list[tuple[Module, tuple[str | None, str | None] | None]]] = {}
+        self._pinned: dict[str, str | None] = {}
+        self._edition_notes: list[str] = []
 
     @classmethod
     def with_bundled(cls, *optional: str) -> Mib:
@@ -294,16 +352,63 @@ class Mib:
         return mib
 
     def add(self, module: Module, *, path: str | None = None, sha256: str | None = None) -> None:
-        """Add a parsed module, replacing a loaded one of the same name.
+        """Add a parsed module. A module of the same name is kept as another edition (see ``editions``);
+        the edition with the latest LAST-UPDATED answers, and among equal ones the one added last.
 
         ``path`` and ``sha256`` record where the module was read from and the hash of the bytes read; they
         come back in ``provenance`` (design). A module added without them has none to report.
         """
-        self._modules[module.name] = module
-        self._origin.pop(module.name, None)
-        if path is not None or sha256 is not None:
-            self._origin[module.name] = (path, sha256)
+        origin = (path, sha256) if path is not None or sha256 is not None else None
+        held = self._editions.setdefault(module.name, [])
+        held[:] = [
+            entry for entry in held if entry[0] != module
+        ]  # the same text again: the newer origin
+        held.append((module, origin))
+        self._select(module.name)
         self._built = False
+
+    def _select(self, name: str) -> None:
+        """Choose the edition of ``name`` that answers (latest LAST-UPDATED, else the last added)."""
+        held = self._editions[name]
+        wanted = self._pinned.get(name, "")
+        if name in self._pinned:
+            matches = [e for e in held if _same_revision(_module_revision(e[0]), wanted)]
+            if not matches:
+                raise ResolveError(f"{name} has no loaded edition with LAST-UPDATED {wanted}")
+            chosen = matches[-1]
+        else:
+            chosen = held[0]
+            for entry in held[1:]:
+                if _rank(entry[0]) >= _rank(chosen[0]):
+                    chosen = entry
+        self._modules[name] = chosen[0]
+        if chosen[1] is None:
+            self._origin.pop(name, None)
+        else:
+            self._origin[name] = chosen[1]
+
+    def editions(self, module: str) -> tuple[str | None, ...]:
+        """The LAST-UPDATED of each loaded edition of ``module``, newest first (None for an edition with no
+        MODULE-IDENTITY, which sorts last). Empty for a module that is not loaded."""
+        held = self._editions.get(module, [])
+        ranked = sorted(
+            enumerate(held), key=lambda pair: (_rank(pair[1][0]), pair[0]), reverse=True
+        )
+        return tuple(_module_revision(entry[0]) for _, entry in ranked)
+
+    def at_edition(self, module: str, revision: str | None) -> Mib:
+        """A copy of this ``Mib`` that answers for ``module`` from the edition with LAST-UPDATED ``revision``
+        (the ``YYMMDDHHMMZ`` and ``YYYYMMDDHHMMZ`` forms of one date are one edition), or from the edition with
+        no MODULE-IDENTITY when ``revision`` is None; earlier choices of ``at_edition`` carry over. Raises
+        :class:`ResolveError` for a module or an edition that is not loaded."""
+        if module not in self._editions:
+            raise ResolveError(f"{module} is not loaded")
+        clone = Mib()
+        clone._editions = {name: list(entries) for name, entries in self._editions.items()}
+        clone._pinned = {**self._pinned, module: revision}
+        for name in clone._editions:
+            clone._select(name)
+        return clone
 
     def add_text(self, text: str, *, path: str | None = None, sha256: str | None = None) -> Module:
         module = parse(text)
@@ -322,6 +427,7 @@ class Mib:
         self.problems = []
         self._defs, self._objects, self._by_oid, self._by_name = {}, {}, {}, {}
         self._oid_memo = {}
+        self._report_editions()
         for module in self._modules.values():
             table: dict[str, Definition] = {}
             for definition in module.definitions:
@@ -342,13 +448,46 @@ class Mib:
                 oid = self._definition_oid(module.name, name, ()) if kind is not None else None
                 if kind is None or oid is None:
                     continue
-                obj = Object(name, module.name, oid, kind, definition, smi=module.smi)
+                obj = Object(
+                    name,
+                    module.name,
+                    oid,
+                    kind,
+                    definition,
+                    smi=module.smi,
+                    edition=_module_revision(module),
+                )
                 self._objects[module.name, name] = obj
                 self._by_oid.setdefault(oid, []).append(obj)
                 self._by_name.setdefault(name, []).append(obj)
         self._classify()
         self._order_overlaps()
         self._built = True
+
+    def _report_editions(self) -> None:
+        """Say which edition answers where a module is loaded more than once (RFC 2578 5.1, 5.5)."""
+        for name, held in self._editions.items():
+            if len(held) < 2:
+                continue
+            kept = self._modules[name]
+            kept_revision = _module_revision(kept)
+            last = held[-1][0]
+            if last is not kept:
+                self.problems.append(
+                    f"{name}: edition {kept_revision} answers, not the edition {_module_revision(last)} added last"
+                    " (the later LAST-UPDATED wins; RFC 2578 5.1)"
+                )
+            for entry in held:
+                other = entry[0]
+                if other is kept:
+                    continue
+                same = revision_key(_module_revision(other)) == revision_key(kept_revision)
+                if same and revision_key(kept_revision) is not None:
+                    self.problems.append(
+                        f"{name}: two editions share LAST-UPDATED {kept_revision} and differ; "
+                        "the one added last answers"
+                    )
+                    break
 
     def _order_overlaps(self) -> None:
         """Put the SMIv2 module first where two modules define the same OID, and report each overlap.
@@ -437,12 +576,36 @@ class Mib:
         if key in stack:
             self.problems.append(f"{module}: {name} is defined in terms of itself")
             return None
-        oid = getattr(self._defs.get(module, {}).get(name), "oid", None)
+        definition = self._defs.get(module, {}).get(name)
+        if isinstance(definition, TrapType):
+            value = self._trap_oid(module, definition, (*stack, key))
+            self._oid_memo[key] = value
+            return value
+        oid = getattr(definition, "oid", None)
         if not isinstance(oid, Oid):
             return None
         value = self._oid_value(module, name, oid, (*stack, key))
         self._oid_memo[key] = value
         return value
+
+    def _trap_oid(
+        self, module: str, trap: TrapType, stack: tuple[tuple[str, str], ...]
+    ) -> tuple[int, ...] | None:
+        """The notification an SMIv1 TRAP-TYPE becomes in SNMPv2 (RFC 1215 2.1.5; RFC 3584 3.1): the ENTERPRISE
+        value, ``0`` and the trap number; or, when the ENTERPRISE is ``snmp``, the generic trap ``snmpTraps.(n+1)``
+        for n 0 to 5."""
+        enterprise = self._oid_value(module, trap.name, trap.enterprise, stack)
+        if enterprise is None:
+            return None
+        if enterprise == _SNMP_GROUP:
+            if trap.number not in _GENERIC_TRAPS:
+                self.problems.append(
+                    f"{module}: {trap.name}: ENTERPRISE snmp makes the number a generic trap, 0 to 5 "
+                    f"(RFC 1215 2.1.5), not {trap.number}"
+                )
+                return None
+            return (*_SNMP_TRAPS, trap.number + 1)
+        return (*enterprise, 0, trap.number)
 
     def _oid_value(
         self, module: str, owner: str, oid: Oid, stack: tuple[tuple[str, str], ...]
@@ -721,15 +884,32 @@ class Mib:
     def _revision(self, module: str) -> str | None:
         """The LAST-UPDATED of a loaded module's MODULE-IDENTITY, or None for a module that has none."""
         loaded = self._modules.get(module)
-        if loaded is None:
-            return None
-        for definition in loaded.definitions:
-            if isinstance(definition, ModuleIdentity):
-                return definition.last_updated
-        return None
+        return None if loaded is None else _module_revision(loaded)
+
+
+def _module_revision(module: Module) -> str | None:
+    """The LAST-UPDATED of a module's MODULE-IDENTITY, or None for a module that has none."""
+    for definition in module.definitions:
+        if isinstance(definition, ModuleIdentity):
+            return definition.last_updated
+    return None
+
+
+def _same_revision(left: str | None, right: str | None) -> bool:
+    if left is None or right is None:
+        return left is right
+    return revision_key(left) == revision_key(right) or left == right
+
+
+def _rank(module: Module) -> tuple[int, tuple[int, ...]]:
+    """Sort key of an edition: one with a readable LAST-UPDATED beats one without."""
+    key = revision_key(_module_revision(module))
+    return (0, ()) if key is None else (1, key)
 
 
 def _kind_of(definition: Definition) -> str | None:
+    if isinstance(definition, TrapType):
+        return "trap-type"
     if isinstance(definition, ObjectType):
         return "object-type"
     if isinstance(definition, ObjectIdentity):
