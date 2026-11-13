@@ -67,6 +67,14 @@ rather than merely incomplete.
 - RFC 2578 and RFC 2580 report no errata, but RFC 1213 is updated by RFC 2011, RFC 2012 and RFC 2013, so an interfaces or IP group answer has to name the updating document as well as the base one.
 - The catalogue page announces its own deactivation in favour of MyWorkspace, and its language filter is an ASP.NET postback rather than a queryable endpoint: a GET with language=MIB still returns the unfiltered 977 rows (measured 2026-11-05), so enumeration must walk the per-recommendation listings and pin digests.
 
+## Scope decisions (2026-11-13)
+
+- **SMIv1 is in scope** (RFC 1155, RFC 1212, RFC 1215), alongside SMIv2. `grammar.parse()` reads both dialects; `ObjectType.smi` says which one an object was written in.
+- **snmpy is legacy and is not edited.** It is a consumer of miblang: its `mib.py`, `mib_lookup.py`, `mib_registry.py`, `mib_view.py` and `smi.py` are read as evidence of what a real consumer needs, and each need is a row in `ROADMAP.md`.
+- **Dependency rule.** Standard library only. The `cryptography` package may be used for cryptographic primitives, and miblang has no use for it. ASN.1 is `asn1core` (by sibling path) if a row ever needs it; the parser written so far keeps ranges as plain tuples and needs neither.
+- **itulib.** `itu_search`, `itu_outline` and `itu_read` default to `edition="X.690"`. Pass `edition="X.680"` explicitly for ASN.1 notation, or you get X.690 text.
+- **Fixtures.** Text under `tests/fixtures` is extracted from the RFCs through rfclib and each file's first lines name the RFC section and the date it was read. Everything else the tests parse is an invented module.
+
 ## Protocol work
 
 `.clinerules/10-rfclib.md` describes the `rfclib` calls to make for each obligation

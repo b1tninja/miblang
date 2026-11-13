@@ -1,0 +1,61 @@
+-- Source: RFC 1212 section 4.2 paragraphs 4-10, read through rfclib 2026-11-13. Verbatim apart from the
+-- RFC's indent, except that the DESCRIPTION of ipNetToMediaType is cut after its first paragraph and
+-- the objects ipNetToMediaPhysAddress and ipNetToMediaNetAddress are omitted to keep the fixture short.
+ipNetToMediaTable OBJECT-TYPE
+    SYNTAX  SEQUENCE OF IpNetToMediaEntry
+    ACCESS  not-accessible
+    STATUS  mandatory
+    DESCRIPTION
+            "The IP Address Translation table used for mapping
+            from IP addresses to physical addresses."
+    ::= { ip 22 }
+
+ipNetToMediaEntry OBJECT-TYPE
+    SYNTAX  IpNetToMediaEntry
+    ACCESS  not-accessible
+    STATUS  mandatory
+    DESCRIPTION
+            "Each entry contains one IpAddress to 'physical'
+
+            address equivalence."
+    INDEX   { ipNetToMediaIfIndex,
+              ipNetToMediaNetAddress }
+    ::= { ipNetToMediaTable 1 }
+
+IpNetToMediaEntry ::=
+    SEQUENCE {
+        ipNetToMediaIfIndex
+            INTEGER,
+        ipNetToMediaPhysAddress
+            OCTET STRING,
+        ipNetToMediaNetAddress
+            IpAddress,
+        ipNetoToMediaType
+            INTEGER
+    }
+
+ipNetToMediaIfIndex OBJECT-TYPE
+    SYNTAX  INTEGER
+    ACCESS  read-write
+    STATUS  mandatory
+    DESCRIPTION
+            "The interface on which this entry's equivalence
+            is effective.  The interface identified by a
+            particular value of this index is the same
+            interface as identified by the same value of
+            ifIndex."
+    ::= { ipNetToMediaEntry 1 }
+
+ipNetToMediaType OBJECT-TYPE
+    SYNTAX  INTEGER {
+
+                other(1),   -- none of the following
+                invalid(2), -- an invalidated mapping
+                dynamic(3),
+                static(4)
+            }
+    ACCESS  read-write
+    STATUS  mandatory
+    DESCRIPTION
+            "The type of mapping."
+        ::= { ipNetToMediaEntry 4 }

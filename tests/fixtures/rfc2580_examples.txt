@@ -1,0 +1,98 @@
+-- Source: RFC 2580 (STD 58) sections 3.6 (para 2), 4.6 (para 2), 5.6 (paras 2-3) and 6.7 (paras 2-15),
+-- read through rfclib 2026-11-13. Verbatim apart from removing the RFC's three-space indent.
+snmpGroup OBJECT-GROUP
+    OBJECTS { snmpInPkts,
+              snmpInBadVersions,
+              snmpInASNParseErrs,
+              snmpBadOperations,
+              snmpSilentDrops,
+              snmpProxyDrops,
+              snmpEnableAuthenTraps }
+    STATUS  current
+    DESCRIPTION
+            "A collection of objects providing basic instrumentation
+            and control of an agent."
+   ::= { snmpMIBGroups 8 }
+
+snmpBasicNotificationsGroup NOTIFICATION-GROUP
+    NOTIFICATIONS { coldStart, authenticationFailure }
+    STATUS        current
+    DESCRIPTION
+            "The two notifications which an agent is required to
+            implement."
+   ::= { snmpMIBGroups 7 }
+
+xyzMIBCompliance MODULE-COMPLIANCE
+    STATUS  current
+    DESCRIPTION
+            "The compliance statement for XYZv2 entities which
+            implement the XYZv2 MIB."
+   MODULE  -- compliance to the containing MIB module
+       MANDATORY-GROUPS { xyzSystemGroup,
+                          xyzStatsGroup, xyzTrapGroup,
+                          xyzSetGroup,
+                          xyzBasicNotificationsGroup }
+
+       GROUP   xyzV1Group
+       DESCRIPTION
+           "The xyzV1 group is mandatory only for those
+            XYZv2 entities which also implement XYZv1."
+ ::= { xyzMIBCompliances 1 }
+
+exampleAgent AGENT-CAPABILITIES
+    PRODUCT-RELEASE      "ACME Agent release 1.1 for 4BSD."
+    STATUS               current
+    DESCRIPTION          "ACME agent for 4BSD."
+
+    SUPPORTS             SNMPv2-MIB
+        INCLUDES         { systemGroup, snmpGroup, snmpSetGroup,
+                           snmpBasicNotificationsGroup }
+
+        VARIATION        coldStart
+            DESCRIPTION  "A coldStart trap is generated on all
+                         reboots."
+
+    SUPPORTS             IF-MIB
+        INCLUDES         { ifGeneralGroup, ifPacketGroup }
+
+        VARIATION        ifAdminStatus
+            SYNTAX       INTEGER { up(1), down(2) }
+            DESCRIPTION  "Unable to set test mode on 4BSD."
+
+        VARIATION        ifOperStatus
+            SYNTAX       INTEGER { up(1), down(2) }
+            DESCRIPTION  "Information limited on 4BSD."
+
+    SUPPORTS             IP-MIB
+        INCLUDES         { ipGroup, icmpGroup }
+
+        VARIATION        ipDefaultTTL
+            SYNTAX       INTEGER (255..255)
+            DESCRIPTION  "Hard-wired on 4BSD."
+
+        VARIATION        ipInAddrErrors
+            ACCESS       not-implemented
+            DESCRIPTION  "Information not available on 4BSD."
+
+        VARIATION        ipNetToMediaEntry
+            CREATION-REQUIRES { ipNetToMediaPhysAddress }
+            DESCRIPTION  "Address mappings on 4BSD require
+                         both protocol and media addresses."
+
+    SUPPORTS             TCP-MIB
+        INCLUDES         { tcpGroup }
+        VARIATION        tcpConnState
+
+            ACCESS       read-only
+            DESCRIPTION  "Unable to set this on 4BSD."
+
+    SUPPORTS             UDP-MIB
+        INCLUDES         { udpGroup }
+
+    SUPPORTS             EVAL-MIB
+        INCLUDES         { functionsGroup, expressionsGroup }
+        VARIATION        exprEntry
+            CREATION-REQUIRES { evalString, evalStatus }
+            DESCRIPTION  "Conceptual row creation is supported."
+
+    ::= { acmeAgents 1 }

@@ -5,10 +5,13 @@
      the badges stay commented out until the tag exists.
 -->
 
-**Pre-alpha shell.** The package surface, the obligation matrix and the CI gates exist.
-No protocol behaviour is implemented: every public function raises `NotImplementedError`,
-and the test suite records that rather than hiding it. Read
-[ROADMAP.md](ROADMAP.md) before depending on any of it.
+**Pre-alpha.** The lexer and the module grammar work: `miblang.parse(text)` reads one SMIv1 or SMIv2
+information module into frozen dataclasses (header, IMPORTS, OBJECT IDENTIFIER assignments,
+OBJECT-TYPE, MODULE-IDENTITY, OBJECT-IDENTITY, NOTIFICATION-TYPE, TRAP-TYPE, TEXTUAL-CONVENTION, the
+RFC 2580 macros, type assignments). Name resolution, the OID tree, textual-convention semantics and
+the ITU-T catalogue are not built: those public functions still raise `NotImplementedError`, and the
+test suite records that rather than hiding it. Read [ROADMAP.md](ROADMAP.md) before depending on any
+of it.
 
 miblang -- SMIv2 module parsing that says which edition an answer came from
 
@@ -44,6 +47,9 @@ document, which is the honest grain size for a plan. See [docs/rfc-map.md](docs/
 | RFC 2578 | Internet Standard (STD 58) | 1999-04 | SMIv2 itself: the MODULE-IDENTITY, OBJECT-TYPE, OBJECT-IDENTITY and NOTIFICATION-TYPE macros and their ASN.1 mapping, which is the grammar this parses |
 | RFC 2579 | Internet Standard (STD 58) | 1999-04 | the TEXTUAL-CONVENTION macro that RFC 2578 section 7.1.5 defers to, and the initial convention set every deployed module imports |
 | RFC 2580 | Internet Standard (STD 58) | 1999-04 | MODULE-COMPLIANCE, AGENT-CAPABILITY and the group forms: conformance as data rather than as prose |
+| RFC 1155 | Internet Standard (STD 16) | 1990-05 | SMIv1: the RFC1155-SMI module, the OBJECT-TYPE macro with ACCESS and the mandatory/optional status values; in scope since 2026-11-13 because a large share of deployed enterprise MIBs are still SMIv1 |
+| RFC 1212 | Internet Standard (STD 16) | 1991-03 | SMIv1 concise OBJECT-TYPE: INDEX with types, DEFVAL forms, optional DESCRIPTION |
+| RFC 1215 | Informational | 1991-03 | SMIv1 TRAP-TYPE, parsed because deployed MIBs use it |
 | RFC 1213 | Internet Standard (STD 17) | 1991-03 | MIB-II, the module a reader has to get right first and the one snmpy's constants are a hand copy of, updated by RFC 2011, RFC 2012 and RFC 2013 |
 | RFC 1902 | Draft Standard (Obsolete) | 1996-01 | the SMI text older modules were written against, obsoleted by RFC 2578 yet still parsed in practice, so the reader must accept both and say which one it saw |
 | ITU-T Recommendations formal descriptions catalogue | operational catalogue, page marked for deactivation | - | 977 machine-readable normative artifacts keyed by Recommendation, approval date, language, module name and OID; measured 2026-11-05, and the module corpus this project reads once itulib mirrors it |

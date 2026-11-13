@@ -1,0 +1,32 @@
+-- Source: RFC 1215 sections 2.2.1 (paras 2-3) and 2.2.2 (paras 2 and 4), read through rfclib 2026-11-13.
+-- Verbatim apart from removing the RFC's indent.
+myEnterprise OBJECT IDENTIFIER ::= { enterprises 9999 }
+
+myLinkDown TRAP-TYPE
+    ENTERPRISE  myEnterprise
+    VARIABLES   { ifIndex }
+    DESCRIPTION
+                "A myLinkDown trap signifies that the sending
+                SNMP application entity recognizes a failure
+                in one of the communications links represented
+                in the agent's configuration."
+    ::= 2
+
+coldStart TRAP-TYPE
+    ENTERPRISE  snmp
+    DESCRIPTION
+                "A coldStart trap signifies that the sending
+                protocol entity is reinitializing itself such
+                that the agent's configuration or the rotocol
+                entity implementation may be altered."
+    ::= 0
+
+linkDown TRAP-TYPE
+    ENTERPRISE  snmp
+    VARIABLES   { ifIndex }
+    DESCRIPTION
+                "A linkDown trap signifies that the sending
+                protocol entity recognizes a failure in one of
+                the communication links represented in the
+                agent's configuration."
+    ::= 2

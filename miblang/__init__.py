@@ -13,7 +13,7 @@ from . import apps, catalogue, cli, conformance, conventions, grammar, lexer, re
 from .catalogue import modules_of
 from .conformance import compliance
 from .conventions import textual_convention
-from .grammar import module_identity, object_type
+from .grammar import module_identity, object_type, parse
 from .lexer import lex
 from .resolve import index, load, provenance
 
@@ -35,6 +35,7 @@ __all__ = [
     "module_identity",
     "modules_of",
     "object_type",
+    "parse",
     "provenance",
     "resolve",
     "textual_convention",

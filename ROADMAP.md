@@ -22,20 +22,50 @@ drift apart within one release, and the document becomes useless exactly when it
 
 | Obligation | Spec | Status | Where | Milestone |
 |---|---|---|---|---|
-| `lexer.lex()` | RFC 2578 | `[ ]` | `tests/test_obligations.py::test_lex` (to be written) | M1 |
-| `grammar.module_identity()` | RFC 2578 | `[ ]` | `tests/test_obligations.py::test_module_identity` (to be written) | M1 |
-| `grammar.object_type()` | RFC 2578 | `[ ]` | `tests/test_obligations.py::test_object_type` (to be written) | M1 |
+| `lexer.lex()` | RFC 2578 sec. 3.1.1, 3.4, 3.7; X.680 12.3 | `[ok]` | `tests/test_lexer.py::test_lex_module_identity_header`; `tests/test_lexer.py::test_reserved_list_matches_rfc_2578_3_7`; `tests/test_lexer.py::test_one_million_open_quote_chars_is_linear_time` | M1 |
+| `grammar.parse_module()` module header, `IMPORTS`, SMIv1 `EXPORTS` | RFC 2578 sec. 3, 3.2, 3.3; RFC 1155 sec. 6 | `[ok]` | `tests/test_grammar.py::test_module_header_and_imports`; `tests/test_grammar.py::test_exports_clause_is_kept_for_smiv1` | M1 |
+| `grammar.parse()` OBJECT IDENTIFIER assignments | RFC 2578 sec. 3.5, 3.6 | `[ok]` | `tests/test_grammar.py::test_oid_assignments_with_named_numbers_and_qualified_names`; `tests/test_grammar.py::test_oid_subidentifier_limit_and_empty_oid` | M1 |
+| `grammar.module_identity()` | RFC 2578 sec. 5 | `[ok]` | `tests/test_grammar.py::test_module_identity_from_rfc2578_5_7` | M1 |
+| `grammar.parse()` OBJECT-IDENTITY | RFC 2578 sec. 6 | `[ok]` | `tests/test_grammar.py::test_object_identity_from_rfc2578_zero_dot_zero` | M1 |
+| `grammar.object_type()` | RFC 2578 sec. 7 | `[ok]` | `tests/test_grammar.py::test_object_type_table_from_rfc2578_7_11`; `tests/test_grammar.py::test_object_type_refusals` | M1 |
+| `grammar.parse()` NOTIFICATION-TYPE | RFC 2578 sec. 8 | `[ok]` | `tests/test_grammar.py::test_notification_type_from_rfc2578_8_6` | M1 |
+| `grammar.parse()` TEXTUAL-CONVENTION syntax | RFC 2579 sec. 2, 3 | `[ok]` | `tests/test_grammar.py::test_textual_conventions_from_rfc2579_section_2` | M1 |
+| `grammar.parse()` OBJECT-GROUP, NOTIFICATION-GROUP, MODULE-COMPLIANCE, AGENT-CAPABILITIES syntax | RFC 2580 sec. 2 to 6 | `[ok]` | `tests/test_grammar.py::test_conformance_macros_from_rfc2580_examples` | M1 |
+| `grammar.parse()` the SNMPv2-SMI base module, with MACRO definitions skipped | RFC 2578 sec. 2 | `[ok]` | `tests/test_grammar.py::test_snmpv2_smi_module_from_rfc2578_section_2` | M1 |
+| `grammar.parse()` SMIv1 OBJECT-TYPE (ACCESS, mandatory/optional, INDEX types, DEFVAL forms) | RFC 1155 sec. 6; RFC 1212 sec. 4 | `[ok]` | `tests/test_grammar.py::test_smiv1_object_types_from_rfc1212_4_2`; `tests/test_grammar.py::test_smiv1_index_types_and_defval_forms` | M1 |
+| `grammar.parse()` SMIv1 TRAP-TYPE | RFC 1215 sec. 2 | `[ok]` | `tests/test_grammar.py::test_trap_type_from_rfc1215_2_2` | M1 |
+| `grammar.parse()` the RFC1155-SMI base module | RFC 1155 sec. 6 | `[ok]` | `tests/test_grammar.py::test_rfc1155_smi_module` | M1 |
+| `lexer.lex()` doubled quote inside a string (X.680 12.14 reading) | X.680 12.14 (not read yet) | `[ ]` | `tests/test_lexer.py::test_doubled_quote_policy` (to be written) | M1 |
+| `lexer.lex()` odd runs of hyphens (banner comments such as `-----`) | RFC 2578 sec. 3.4; X.680 12.6 (not read yet) | `[ ]` | `tests/test_lexer.py::test_odd_hyphen_banner` (to be written) | M1 |
+| `grammar.parse()` refuses SMIv1 macros in an SMIv2 module and the reverse | RFC 2578 sec. 3 paragraph 8 | `[ ]` | `tests/test_grammar.py::test_mixed_smi_dialects_refused` (to be written) | M1 |
+| `grammar.parse()` refuses `EXPORTS` in an SMIv2 module | RFC 2578 sec. 3.3 | `[ ]` | `tests/test_grammar.py::test_exports_refused_in_smiv2` (to be written) | M1 |
+| `grammar.parse()` descriptor rules: no hyphen in an SMIv2 descriptor, at most 64 characters, module name form | RFC 2578 sec. 3, 3.1 | `[ ]` | `tests/test_grammar.py::test_descriptor_rules` (to be written) | M1 |
+| `grammar.parse()` SMIv2 sub-typing rules: ranges ascending and disjoint, no MIN/MAX, SIZE only on OCTET STRING | RFC 2578 sec. 9, 11.1, 11.2 | `[ ]` | `tests/test_grammar.py::test_subtyping_rules` (to be written) | M3 |
+| `grammar.parse()` lenient mode for modules found in the wild: out-of-order clauses and the other deviations RFC 4181 and snmpy's consumers meet | RFC 4181 | `[ ]` | `tests/test_grammar.py::test_lenient_mode` (to be written) | M6 |
+| `grammar.parse()` the base-module corpus bundled as data with sha256: RFC1155-SMI, RFC-1212, RFC-1215, RFC1213-MIB, SNMPv2-SMI, SNMPv2-TC, SNMPv2-CONF | RFC 1155, 1212, 1215, 1213, 2578, 2579, 2580 | `[part]` | `tests/test_grammar.py::test_snmpv2_smi_module_from_rfc2578_section_2` | M2 |
 | `resolve.load()` | RFC 2578 | `[ ]` | `tests/test_obligations.py::test_load` (to be written) | M2 |
 | `resolve.resolve()` | RFC 2578 | `[ ]` | `tests/test_obligations.py::test_resolve` (to be written) | M2 |
 | `resolve.index()` | RFC 2578 | `[ ]` | `tests/test_obligations.py::test_index` (to be written) | M2 |
+| `resolve.index()` longest-prefix match of an instance OID (`1.3.6.1.2.1.2.2.1.2.7`) to its object, with the row index split off | RFC 2578 sec. 7.7; RFC 1212 sec. 4.1.6 | `[ ]` | `tests/test_obligations.py::test_index_instance_suffix` (to be written) | M2 |
+| `resolve.resolve()` TC chain to the base type, enumerations and SIZE through each refinement, as snmpy's hand-written `smi.py` does for DisplayString, RowStatus, StorageType | RFC 2579 sec. 3.5, 4 | `[ ]` | `tests/test_obligations.py::test_tc_chain` (to be written) | M3 |
+| `resolve.resolve()` object metadata snmpy's registry carries by hand: syntax name, access, notification flag; MAX-ACCESS vs ACCESS as one vocabulary | RFC 2578 sec. 7.3; RFC 1212 sec. 4.1.2 | `[ ]` | `tests/test_obligations.py::test_resolve_metadata` (to be written) | M2 |
+| `resolve.resolve()` table, row and column classification from SEQUENCE OF, INDEX and AUGMENTS (snmpy's `scalar=False` walk roots) | RFC 2578 sec. 7.10 | `[ ]` | `tests/test_obligations.py::test_table_classification` (to be written) | M2 |
+| `resolve.resolve()` SMIv2-only syntax (Counter64) reported per object, for an SNMPv1 agent to refuse (snmpy `check_counter64_response`) | RFC 2578 sec. 7.1.10 | `[ ]` | `tests/test_obligations.py::test_smiv2_only_syntax` (to be written) | M2 |
+| `resolve.provenance()` which document an OID came from, flagging HISTORIC and obsoleted sources (snmpy `mib.py` cites RFC 1156, HISTORIC; RFC 2011, 2012, 2013 are obsolete) | RFC 1156; RFC 1213; RFC 4293; RFC 4022; RFC 4113 | `[ ]` | `tests/test_obligations.py::test_provenance_obsolete_source` (to be written) | M2 |
 | `conventions.textual_convention()` | RFC 2579 | `[ ]` | `tests/test_obligations.py::test_textual_convention` (to be written) | M3 |
+| `conventions.textual_convention()` RFC 2579 errata 415, 416, 417 (RowStatus reference to 7.1.12, DateAndTime month and day 0, year 0..65535) | RFC 2579 errata | `[ ]` | `tests/test_obligations.py::test_rfc2579_errata_fixtures` (to be written) | M3 |
 | `conformance.compliance()` | RFC 2580 | `[ ]` | `tests/test_obligations.py::test_compliance` (to be written) | M4 |
 | `catalogue.modules_of()` | ITU-T | `[ ]` | `tests/test_obligations.py::test_modules_of` (to be written) | M5 |
 | `resolve.provenance()` | design | `[ ]` | `tests/test_obligations.py::test_provenance` (to be written) | M5 |
+| `catalogue.modules_of()` IANA-maintained modules (IANAifType-MIB and the like), a source outside the RFCs | IANA registry (not yet read) | `[ ]` | `tests/test_obligations.py::test_iana_modules` (to be written) | M5 |
+
+Placement of rows in the milestone column that this pass added: the parse rows are M1 because they
+are syntax; the resolver rows that came out of reading snmpy are M2 and M3 because each needs the
+object tree or the textual-convention chain.
 
 ## 2. Milestones
 
-- M1 tokenizer plus the MODULE-IDENTITY, OBJECT-TYPE and TEXTUAL-CONVENTION forms, proven against published modules byte for byte
+- M1 tokenizer plus the MODULE-IDENTITY, OBJECT-TYPE and TEXTUAL-CONVENTION forms, proven against published modules byte for byte, and the SMIv1 forms (RFC 1155, RFC 1212, RFC 1215): tokenizer, module header, IMPORTS, OBJECT IDENTIFIER assignments and every macro of RFC 2578, 2579, 2580 parse as syntax (first pass done 2026-11-13, against text extracted from the RFCs through rfclib; the 'byte for byte against published modules' claim waits for the M6 corpus)
 - M2 cross-module imports and the resolver, answering name to OID and OID to name with the edition attached
 - M3 the RFC 2579 conventions and their SUB-TYPE ranges as asn1core constraints rather than a parallel type system
 - M4 RFC 2580 conformance statements reduced to an obligation set
@@ -49,6 +79,10 @@ the code existing. Coverage in `pyproject.toml` ratchets in the same commit.
 
 - RFC 2579 carries 3 verified errata (rfclib, 2026-10-29): parse the corrected text, and record which one a fixture was taken from.
 - RFC 2578 and RFC 2580 report no errata, but RFC 1213 is updated by RFC 2011, RFC 2012 and RFC 2013, so an interfaces or IP group answer has to name the updating document as well as the base one.
+- RFC 2579 also has 1 erratum held for document update besides the 3 verified (rfclib, 2026-11-13); the held one is not authoritative yet, so the roadmap row for the errata fixtures names only 415, 416 and 417.
+- RFC 1155 carries 1 verified erratum (eid 2601, editorial, section 4.2: "subject type" should read "object type"); it changes no grammar. RFC 1212 and RFC 1215 report none. RFC 4181 carries 5 verified (one technical, eid 173, an enumeration rule in 4.6.1.1; the rest typographical) and is updated by RFC 4841; it is guidance on authoring, not grammar.
+- RFC 1213 is updated by RFC 2011, RFC 2012 and RFC 2013, and all three are now OBSOLETE: RFC 4293, RFC 4022 and RFC 4113 replace them (rfclib, 2026-11-13). RFC 1156 is HISTORIC (rfclib lists no successor; RFC 1213 obsoletes RFC 1158) and is what snmpy's `mib.py` still cites. An interfaces, IP, TCP or UDP answer names the current document.
+- RFC 1902 is OBSOLETE (obsoleted by RFC 2578). RFC 1215 is Informational, not a standard; TRAP-TYPE is parsed because deployed MIBs use it, not because a standard requires it.
 - The catalogue page announces its own deactivation in favour of MyWorkspace, and its language filter is an ASP.NET postback rather than a queryable endpoint: a GET with language=MIB still returns the unfiltered 977 rows (measured 2026-11-05), so enumeration must walk the per-recommendation listings and pin digests.
 
 ## 4. Deliberate non-goals
@@ -63,6 +97,10 @@ the code existing. Coverage in `pyproject.toml` ratchets in the same commit.
 ## 5. Open questions
 
 - M5 depends on itulib mirroring artifacts and not only prose: its registry is 16 editions of the ASN.1 series today, so the catalogue work is a prerequisite rather than a rung, and no M5 row can be closed before it
+- decided 2026-11-13 (PORTFOLIO.md section 9 item 15): SMIv1 is in scope, and snmpy is legacy and is not edited. snmpy's hand-written `mib.py`, `mib_lookup.py`, `mib_registry.py`, `mib_view.py` and `smi.py` are read as evidence of what a consumer needs; each need is a row in section 1, not a task in snmpy
+- itulib usability note (checked 2026-11-13 with the itulib tools): `itu_search`, `itu_outline` and `itu_read` default to `edition="X.690"`, so a call that omits `edition` for X.680 returns X.690 content. With `edition="X.680"` the same calls return the X.680 clause 12 outline (39 entries) and the text of 12.3 (identifiers) and 12.8 (numbers). An earlier review reported this as a corpus bug; it is an easy-to-miss default. M5 and any ASN.1 notation row must pass the edition explicitly
+- `docs/plan.md` (generated) still says itulib "does not exist yet" and that there is no itulib directory; the itulib tools answer today. The statement is stale; it is fixed in the portfolio plan and regenerated, not edited here
+- `docs/plan.md` lists asn1core as a dependency for the SUB-TYPE rows while `pyproject.toml` declares the `conventions` extra; the parser written in this pass keeps ranges as plain tuples and needs neither, so the dependency begins at M3
 - whether snmpy's hand-written mib_view.py is regenerated from miblang output, retired module by module in favour of the resolver, or left alone: the 40,505 bytes exist and one of the three has to be said out loud
 
 ## 6. Publication checklist
