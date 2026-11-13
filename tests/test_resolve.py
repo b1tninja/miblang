@@ -588,3 +588,30 @@ def test_a_module_with_no_identity_loses_to_one_with_a_last_updated():
     assert mib.editions("EX-MIB") == ("200101010000Z", None)
     assert mib.resolve("exOne").edition == "200101010000Z"
     assert mib.at_edition("EX-MIB", None).resolve("exMIB").edition is None
+
+
+def test_provenance_of_a_text_edition_under_a_bundled_name():
+    # a newer SNMPv2-MIB added as text with no path: the bundled manifest entry must not be reported for it
+    original = bundled.text("SNMPv2-MIB")
+    current = bundled.load_module("SNMPv2-MIB")
+    stamp = next(
+        d for d in current.definitions if d.__class__.__name__ == "ModuleIdentity"
+    ).last_updated
+    newer = original.replace(f'"{stamp}"', '"209912310000Z"', 1)
+    assert newer != original
+    mib = Mib.with_bundled("SNMPv2-MIB")
+    assert mib.provenance("1.3.6.1.2.1.1.1.0").source == "bundled"
+    assert mib.provenance("1.3.6.1.2.1.1.1.0").rfc is not None
+    mib.add_text(newer)
+    answer = mib.provenance("1.3.6.1.2.1.1.1.0")
+    assert answer.source == "text"
+    assert answer.rfc is None and answer.status is None and answer.sha256 is None
+    assert answer.revision == "209912310000Z"
+    assert "not the bundled one" in answer.note
+    # the same text added by hand, without with_bundled, is still the bundled edition
+    plain = Mib()
+    plain.add(bundled.load_module("SNMPv2-SMI"))
+    plain.add(bundled.load_module("SNMPv2-TC"))
+    plain.add(bundled.load_module("SNMPv2-CONF"))
+    plain.add(bundled.load_module("SNMPv2-MIB"))
+    assert plain.provenance("1.3.6.1.2.1.1.1.0").source == "bundled"

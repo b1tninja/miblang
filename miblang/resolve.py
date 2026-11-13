@@ -863,6 +863,18 @@ class Mib:
                 revision=revision,
                 source="text",
             )
+        if not self._is_bundled_edition(obj.module):
+            return Provenance(
+                obj.module,
+                None,
+                None,
+                note=(
+                    f"{obj.module} was added as text under the name of a bundled module, and the edition "
+                    "answering is not the bundled one: the bundled manifest entry does not describe it"
+                ),
+                revision=revision,
+                source="text",
+            )
         rfc = int(str(entry["rfc"]))
         status = str(entry["status"])
         if obj.module == "RFC1213-MIB":
@@ -880,6 +892,15 @@ class Mib:
                         sha256=str(entry["sha256"]),
                     )
         return Provenance(obj.module, rfc, status, revision=revision, sha256=str(entry["sha256"]))
+
+    def _is_bundled_edition(self, module: str) -> bool:
+        """Whether the edition answering for ``module`` is the bundled one (parsed from the same text). Compared
+        by value, so a module added with ``add(bundled.load_module(name))`` counts, as does the one
+        ``with_bundled`` adds, and a newer SNMPv2-MIB added as text under that name does not."""
+        try:
+            return self._modules.get(module) == bundled.load_module(module)
+        except bundled.BundleError:
+            return False
 
     def _revision(self, module: str) -> str | None:
         """The LAST-UPDATED of a loaded module's MODULE-IDENTITY, or None for a module that has none."""
