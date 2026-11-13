@@ -16,13 +16,18 @@
 | RFC 4022 | Proposed Standard, current, obsoletes RFC 2012, 2452; no errata | 2005-03 | 2026-11-13 |
 | RFC 4113 | Proposed Standard, current, obsoletes RFC 2013, 2454; 0 verified (2 on file) | 2005-06 | 2026-11-13 |
 | RFC 1156 | Historic, current (no successor listed); the document snmpy's `mib.py` header cites | 1990-05 | 2026-11-13 |
+| RFC 3584 | Best Current Practice (BCP 74), current, obsoletes RFC 2576; no errata. Section 2.1.1 (SMIv1 to SMIv2 conversion: ACCESS to MAX-ACCESS, write-only to read-write) and section 4.2.2.1 (Counter64 and SNMPv1) read in full | 2003-08 | 2026-11-13 |
+| RFC 2578 sections 7.7, 7.8, 7.10, 7.1.10 and RFC 1212 section 4.1.6 | read in full 2026-11-13 for the resolver's index decoding, row and table classification (RFC 2578 7.1.10 defines Counter64 and says nothing about SNMPv1) | - | 2026-11-13 |
+| RFC 2579 sections 3.5 and 4 | read in full 2026-11-13: a convention's SYNTAX cannot name another convention; an object or convention may sub-type | - | 2026-11-13 |
 | RFC 1902 | Draft Standard, OBSOLETE, obsoleted by RFC 2578 | 1996-01 | 2026-11-13 |
 | RFC 4181 | Best Current Practice (BCP 111), current, updated by RFC 4841; 5 verified errata | 2005-09 | 2026-11-13 |
-| ITU-T Rec. X.680 (02/2021), clause 12 | the lexical rules RFC 2578 leaves to ASN.1 (12.3 identifiers and 12.8 numbers read 2026-11-13 with `edition="X.680"`; 12.6 comments and 12.14 character strings not yet read) | 02/2021 | 2026-11-13 |
+| ITU-T Rec. X.680 (02/2021), clause 12 | the lexical rules RFC 2578 leaves to ASN.1 (12.3 identifiers and 12.8 numbers read 2026-11-13 with `edition="X.680"`; 12.6.1 to 12.6.4 comments and 12.14.1 character strings read 2026-11-13 with `edition="X.680"`: a comment ends at the next pair of hyphens or the end of the line, `/* */` comments exist in ASN.1 and not in SMI, and a pair of quotes in a `cstring` is one quote) | 02/2021 | 2026-11-13 |
 | ITU-T Recommendations formal descriptions catalogue | operational catalogue; the page was marked for deactivation on 2026-11-05 and a later read found a plain directory listing (html, ietf, iso, itu-t, oasis), so it needs re-measuring before M5 | - | 2026-11-05 |
-| IANA-maintained MIB modules (IANAifType-MIB and the like) | not read; they come from IANA, not from RFCs | - | not yet |
+| IANA-maintained MIB modules (IANAifType-MIB and the like) | not read, and not bundled: they come from IANA, not from RFCs; the primarysource `iana` collection holds registry XML and is not imported on this machine, so the raw files at iana.org need a pinned download the owner has to approve | - | not yet |
 
 RFC 1155 section 6, RFC 1212 section 4, RFC 1215 section 2, RFC 2578 section 2, RFC 2579 section 2 and RFC 2580 section 2 contain the macro definitions this parser implements, and tests/fixtures holds the text extracted from them (each file's first lines name the section and the date it was read through rfclib).
+
+`miblang/data/` holds RFC1155-SMI, RFC1213-MIB, SNMPv2-SMI, SNMPv2-TC and SNMPv2-CONF as published (RFC 1155, 1213, 2578, 2579 and 2580), cut by `tools/extract_bundle.py` from the RFC Editor text that rfclib mirrors; `MANIFEST.json` records line ranges, the sha256 of the RFC text and of each module, and the errata that touch module text and were not applied.
 
 Citation rules, in the order they most often get broken:
 

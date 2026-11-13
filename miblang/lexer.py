@@ -13,12 +13,18 @@ The rules come from three places, each cited where it is applied:
 * SMIv1 (RFC 1155, RFC 1212, RFC 1215) adds no lexical item: its macros use the same strings,
   numbers and comments, so one lexer serves both.
 
-Two deliberate readings, both recorded in ROADMAP.md:
+Two deliberate readings, both recorded in ROADMAP.md, each with an opt-in for the other reading:
 
-* A comment runs to the next pair of adjacent hyphens or the end of the line (RFC 2578 3.4). A run of
-  hyphens is therefore read pair by pair, exactly as the text says.
+* A comment runs to the next pair of adjacent hyphens or the end of the line (RFC 2578 3.4; the same
+  rule is Rec. ITU-T X.680 (02/2021) 12.6.3, which adds that a comment contains no other pair of
+  adjacent hyphens). A run of hyphens is therefore read pair by pair, exactly as the text says, and
+  a run of odd length leaves one hyphen that is not a lexical item of SMI: that is refused with a
+  ``LexError`` unless a digit follows it (a negative number). ``lenient_hyphens=True`` reads a whole
+  run of hyphens as one marker instead, which is what banner comments such as ``------`` mean.
 * A quote character cannot occur inside a character string (RFC 2578 3.1.1), so ``""`` is an empty
-  string followed by another string, not an escaped quote.
+  string followed by another string, not an escaped quote. X.680 12.14.1 says the opposite for ASN.1
+  in general (a pair of quotes stands for one, and spacing around a line end is not part of the
+  string); ``x680_strings=True`` selects that reading.
 """
 
 from __future__ import annotations
@@ -94,10 +100,20 @@ _NUMBER = re.compile(r"[0-9]+")
 _SPACE = re.compile(r"[ \t\r\n\f\v]+")
 _BAD_ASCII = re.compile(r"[^\t\n\r\x20-\x7e]")
 _BAD_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+_X680_EOL_SPACE = re.compile(
+    r"[ \t]*\r?\n[ \t]*"
+)  # X.680 12.14.1: spacing around a line end is not part of the value
 _PUNCT = frozenset("{}()[],;|.-")
 
 
-def lex(text: str, *, max_length: int = 5_000_000, strict_ascii: bool = False) -> list[Token]:
+def lex(
+    text: str,
+    *,
+    max_length: int = 5_000_000,
+    strict_ascii: bool = False,
+    lenient_hyphens: bool = False,
+    x680_strings: bool = False,
+) -> list[Token]:
     """Tokenise an information module (RFC 2578 sections 3.1.1, 3.4 and 3.7).
 
     The result always ends with an ``EOF`` token. Unknown characters raise ``LexError`` and are
@@ -107,6 +123,9 @@ def lex(text: str, *, max_length: int = 5_000_000, strict_ascii: bool = False) -
     character strings. The default, ``False``, admits non-ASCII text inside strings because
     published modules contain it, but NUL and other control characters (other than tab, CR and LF)
     are always refused. A leading byte order mark is refused, not skipped.
+
+    ``lenient_hyphens`` and ``x680_strings`` select the X.680 readings described in the module
+    docstring; both default to the RFC 2578 reading.
     """
     if len(text) > max_length:
         raise LexError(f"input of {len(text)} characters exceeds max_length {max_length}", 1, 1)
@@ -140,14 +159,28 @@ def lex(text: str, *, max_length: int = 5_000_000, strict_ascii: bool = False) -
             pos = space.end()
             continue
         if text.startswith("--", pos):
-            # RFC 2578 3.4: ends at the next pair of adjacent hyphens or at end of line.
-            stop_pair = text.find("--", pos + 2)
+            # RFC 2578 3.4 and X.680 12.6.3: ends at the next pair of adjacent hyphens or at end
+            # of line, whichever occurs first.
+            start = pos
+            if lenient_hyphens:
+                while start < end and text[start] == "-":
+                    start += 1
+                scan = start
+            else:
+                scan = pos + 2
+            stop_pair = text.find("--", scan)
             stop_line = end
             for terminator in ("\n", "\r"):
-                found = text.find(terminator, pos + 2)
+                found = text.find(terminator, scan)
                 if found != -1:
                     stop_line = min(stop_line, found)
-            pos = stop_pair + 2 if stop_pair != -1 and stop_pair < stop_line else stop_line
+            if stop_pair != -1 and stop_pair < stop_line:
+                pos = stop_pair + 2
+                if lenient_hyphens:
+                    while pos < end and text[pos] == "-":
+                        pos += 1
+            else:
+                pos = stop_line
             continue
         if ch.isascii() and ch.isalpha():
             word_match = _WORD.match(text, pos)
@@ -179,6 +212,8 @@ def lex(text: str, *, max_length: int = 5_000_000, strict_ascii: bool = False) -
             continue
         if ch == '"':
             close = text.find('"', pos + 1)
+            while x680_strings and close != -1 and text.startswith('""', close):
+                close = text.find('"', close + 2)  # X.680 12.14.1: a pair of quotes is one quote
             if close == -1:
                 raise fail("unterminated character string", pos)
             body = text[pos + 1 : close]
@@ -188,6 +223,8 @@ def lex(text: str, *, max_length: int = 5_000_000, strict_ascii: bool = False) -
                     f"character {bad.group()!r} not allowed in a character string",
                     pos + 1 + bad.start(),
                 )
+            if x680_strings:
+                body = _X680_EOL_SPACE.sub("\n", body.replace('""', '"'))
             tokens.append(make(TokenKind.CSTRING, body, pos))
             pos = close + 1
             continue
@@ -214,6 +251,12 @@ def lex(text: str, *, max_length: int = 5_000_000, strict_ascii: bool = False) -
             tokens.append(make(TokenKind.RANGE, "..", pos))
             pos += 2
             continue
+        if ch == "-" and not (
+            pos + 1 < end and text[pos + 1].isascii() and text[pos + 1].isdigit()
+        ):
+            raise fail(
+                "stray hyphen: an odd run of hyphens, or a hyphen that does not begin a number", pos
+            )
         if ch in _PUNCT:
             tokens.append(make(TokenKind.PUNCT, ch, pos))
             pos += 1

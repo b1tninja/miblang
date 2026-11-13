@@ -206,3 +206,46 @@ def test_one_million_open_quote_chars_is_linear_time():
         lex('"' * 3 + "x" * 1_000_000)
     assert len(lex('""' * 100_000)) == 100_001  # 100000 empty strings and EOF
     assert time.perf_counter() - start < 2
+
+
+def test_doubled_quote_policy():
+    # RFC 2578 3.1.1: no quote inside a string, so a doubled quote is two strings. X.680 12.14.1
+    # (read with edition="X.680"): a pair of quotes is one quote, and spacing around a line end is
+    # not part of the value. The default is the RFC 2578 reading.
+    assert kinds('"a""b"') == [(TokenKind.CSTRING, "a"), (TokenKind.CSTRING, "b")]
+    assert kinds('"a""b"', x680_strings=True) == [(TokenKind.CSTRING, 'a"b')]
+    assert kinds('""', x680_strings=True) == [(TokenKind.CSTRING, "")]
+    assert kinds('""""', x680_strings=True) == [(TokenKind.CSTRING, '"')]
+    assert kinds('"ab  \n   cd"', x680_strings=True) == [(TokenKind.CSTRING, "ab\ncd")]
+    assert kinds('"ab  \n   cd"') == [(TokenKind.CSTRING, "ab  \n   cd")]
+    with pytest.raises(LexError, match="unterminated"):
+        lex('"a""b', x680_strings=True)
+
+
+def test_odd_hyphen_banner():
+    # X.680 12.6.3 (and RFC 2578 3.4): a comment ends at the next pair of hyphens, so an odd run
+    # leaves one hyphen. Strict mode refuses it; lenient_hyphens reads the whole run as one marker.
+    with pytest.raises(LexError, match="stray hyphen"):
+        lex("a ----- b")
+    assert kinds("a ----- b\nc", lenient_hyphens=True) == [
+        (TokenKind.IDENT, "a"),
+        (TokenKind.IDENT, "c"),
+    ]
+    assert kinds("a --------\nb", lenient_hyphens=True) == [
+        (TokenKind.IDENT, "a"),
+        (TokenKind.IDENT, "b"),
+    ]
+    assert kinds("a -- x --- b\nc", lenient_hyphens=True) == [
+        (TokenKind.IDENT, "a"),
+        (TokenKind.IDENT, "b"),
+        (TokenKind.IDENT, "c"),
+    ]
+    # an even run is read pair by pair in both modes
+    assert kinds("a ------\nb") == [(TokenKind.IDENT, "a"), (TokenKind.IDENT, "b")]
+    # a hyphen before a digit is a negative number in both modes
+    assert kinds("(-5..5)", lenient_hyphens=True)[1:3] == [
+        (TokenKind.PUNCT, "-"),
+        (TokenKind.NUMBER, "5"),
+    ]
+    with pytest.raises(LexError, match="stray hyphen"):
+        lex("a - b")

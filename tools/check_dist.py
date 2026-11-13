@@ -26,6 +26,9 @@ def main():
     problems = []
     if PKG + "/py.typed" not in names:
         problems.append(PKG + "/py.typed missing from the wheel")
+    for bundled_file in ("MANIFEST.json", "SNMPv2-SMI.mib", "SNMPv2-TC.mib", "SNMPv2-CONF.mib"):
+        if f"{PKG}/data/{bundled_file}" not in names:
+            problems.append(f"{PKG}/data/{bundled_file} missing from the wheel")
     problems += [
         f + " missing from the repository root" for f in REQUIRED if not (ROOT / f).exists()
     ]

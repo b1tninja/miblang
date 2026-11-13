@@ -9,7 +9,7 @@ NOTIFICATION-TYPE token and no MODULE-IDENTITY or OBJECT-TYPE anywhere.
 
 from __future__ import annotations
 
-from . import apps, catalogue, cli, conformance, conventions, grammar, lexer, resolve
+from . import apps, bundled, catalogue, cli, conformance, conventions, grammar, lexer, resolve
 from .catalogue import modules_of
 from .conformance import compliance
 from .conventions import textual_convention
@@ -22,6 +22,7 @@ __version__ = "0.1.0"
 __all__ = [
     "__version__",
     "apps",
+    "bundled",
     "catalogue",
     "cli",
     "compliance",

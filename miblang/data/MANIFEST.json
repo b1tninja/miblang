@@ -1,0 +1,68 @@
+[
+  {
+    "module": "RFC1155-SMI",
+    "rfc": 1155,
+    "status": "STD 16, current",
+    "lines": [
+      905,
+      1048
+    ],
+    "rfc_txt_sha256": "f38eead109607f99301b3608e189a6dcf3e0fbdc77f55b6e282dda4264698717",
+    "sha256": "d136f8482beb0cf152b6667a2473e28ffa51030b4007e90896afc1c14e0595ca",
+    "errata_not_applied": [
+      "2601 editorial, 4.2, outside the module"
+    ]
+  },
+  {
+    "module": "RFC1213-MIB",
+    "rfc": 1213,
+    "status": "STD 17, current; updated by RFC 2011, 2012, 2013, all obsolete",
+    "lines": [
+      647,
+      3705
+    ],
+    "rfc_txt_sha256": "88056a4c7c3385ffa9c1bab173342ab4fd98834995269145eb7c2a4b38d80bac",
+    "sha256": "de427b3bb609f40f21b87b959f0a5ef4f171ee194b46f3124e5edec1754754d4",
+    "errata_not_applied": []
+  },
+  {
+    "module": "SNMPv2-SMI",
+    "rfc": 2578,
+    "status": "STD 58, current",
+    "lines": [
+      195,
+      623
+    ],
+    "rfc_txt_sha256": "77ff4095516641cd3cedac996380b8cf442f3a8727a1ea4b27f03f4871d9bdbf",
+    "sha256": "77f24141fa5b4f7ba80c65350090bd78f403a8fb5223ce6ad3ea3161a4bd0730",
+    "errata_not_applied": []
+  },
+  {
+    "module": "SNMPv2-TC",
+    "rfc": 2579,
+    "status": "STD 58, current",
+    "lines": [
+      106,
+      1157
+    ],
+    "rfc_txt_sha256": "1bde590451bdd6441af9dc4648ed02529816ea11f5f42b52a5f5d42066ea7440",
+    "sha256": "eb6d58b803c0275f85d6d5673b3cc578f1909bcbfa71f3fadfaba038cfb4afd9",
+    "errata_not_applied": [
+      "415 technical, 7.1.1: DESCRIPTION of RowStatus cites 7.7.1, should be 7.1.12",
+      "416 editorial: DateAndTime month and day may be 0",
+      "417 technical, 2: DateAndTime year range 0..65536 should be 0..65535"
+    ]
+  },
+  {
+    "module": "SNMPv2-CONF",
+    "rfc": 2580,
+    "status": "STD 58, current",
+    "lines": [
+      150,
+      543
+    ],
+    "rfc_txt_sha256": "b5ca6c4466c80125a39d7a5f6274cb7711cd7cffc0b4bf015386ca299f0061d1",
+    "sha256": "f4ba2f091325dedb24a072a17cd71ce6c0246774d45499bea6ea93a3c2534c2a",
+    "errata_not_applied": []
+  }
+]

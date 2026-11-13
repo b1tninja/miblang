@@ -6,3 +6,6 @@
 *.png binary
 *.pcap binary
 *.der binary
+
+# bundled RFC modules are hashed byte for byte (miblang/data/MANIFEST.json)
+miblang/data/* -text
