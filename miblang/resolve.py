@@ -281,10 +281,15 @@ class Mib:
         self._origin: dict[str, tuple[str | None, str | None]] = {}
 
     @classmethod
-    def with_bundled(cls) -> Mib:
-        """A Mib holding the bundled SMI base modules and MIB-II (``miblang.bundled``)."""
+    def with_bundled(cls, *optional: str) -> Mib:
+        """A Mib holding the bundled SMI base modules and MIB-II (``miblang.bundled``).
+
+        ``optional`` names bundled modules to add as well, those the manifest marks optional (SNMPv2-MIB,
+        IF-MIB): ``Mib.with_bundled("SNMPv2-MIB", "IF-MIB")``. IF-MIB also imports IANAifType-MIB, which is
+        not bundled and has to be added by the caller. A name that is not bundled raises ``BundleError``.
+        """
         mib = cls()
-        for name in bundled.names():
+        for name in (*bundled.default_names(), *optional):
             mib.add(bundled.load_module(name))
         return mib
 
@@ -342,7 +347,37 @@ class Mib:
                 self._by_oid.setdefault(oid, []).append(obj)
                 self._by_name.setdefault(name, []).append(obj)
         self._classify()
+        self._order_overlaps()
         self._built = True
+
+    def _order_overlaps(self) -> None:
+        """Put the SMIv2 module first where two modules define the same OID, and report each overlap.
+
+        An answer by OID goes to the first object at it, so the order is the answer. A module written in
+        SMIv2 (RFC 2578) supersedes one written in SMIv1 (RFC 1155, RFC 1212) for the same OID, as IF-MIB
+        (RFC 2863) does RFC 1213-MIB's interfaces group, so it is moved ahead; among modules of the same
+        dialect the order they were added in stands. Nothing is resolved silently: one entry in
+        ``problems`` per pair of modules names the winner, the loser and some of the OIDs
+        (PORTFOLIO section 9 item 15). The SMI base modules, which restate each other's roots on purpose
+        (``internet``, ``mib-2``), are ordered but not reported. ``MODULE::name`` lookups are not affected.
+        """
+        overlaps: dict[tuple[str, str], list[tuple[int, ...]]] = {}
+        for oid, objects in self._by_oid.items():
+            if len({o.module for o in objects}) < 2:
+                continue
+            ordered = sorted(objects, key=lambda o: 0 if o.smi == 2 else 1)  # stable
+            self._by_oid[oid] = ordered
+            winner = ordered[0].module
+            for other in ordered[1:]:
+                if other.module != winner and not {winner, other.module} & _SMI_MODULES:
+                    overlaps.setdefault((winner, other.module), []).append(oid)
+        for (winner, loser), oids in overlaps.items():
+            shown = ", ".join(_dotted(o) for o in sorted(oids)[:3])
+            more = f" and {len(oids) - 3} more" if len(oids) > 3 else ""
+            self.problems.append(
+                f"OID overlap: {winner} and {loser} both define {len(oids)} OID(s) ({shown}{more}); "
+                f"{winner} answers a lookup by OID"
+            )
 
     def _check_imports(self) -> None:
         """Report an IMPORTS entry the loaded source module does not define, and a descriptor imported twice.

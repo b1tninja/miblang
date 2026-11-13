@@ -64,5 +64,35 @@
     "rfc_txt_sha256": "b5ca6c4466c80125a39d7a5f6274cb7711cd7cffc0b4bf015386ca299f0061d1",
     "sha256": "f4ba2f091325dedb24a072a17cd71ce6c0246774d45499bea6ea93a3c2534c2a",
     "errata_not_applied": []
+  },
+  {
+    "module": "SNMPv2-MIB",
+    "rfc": 3418,
+    "status": "STD 62, current; obsoletes RFC 1907",
+    "lines": [
+      104,
+      1096
+    ],
+    "rfc_txt_sha256": "7f3313e0581b841e25ed6785f97d392e2718c51a137018e9e8c8773df20895bf",
+    "sha256": "e26fab109ebae3d78d4f472fdd3221beca6bc219b469736416b9f4334c04367c",
+    "errata_not_applied": [
+      "276 technical: a reference-section heading outside the module"
+    ],
+    "optional": true
+  },
+  {
+    "module": "IF-MIB",
+    "rfc": 2863,
+    "status": "Draft Standard, current; updated by RFC 8892 (registry procedures, not the module text)",
+    "lines": [
+      1423,
+      3549
+    ],
+    "rfc_txt_sha256": "3611f3f0accb11f7aacadc37576cce280bfaf0f4d32df38d4efe86a63bac7d64",
+    "sha256": "5d660240b2d4141c7e58278f4cadae1a90f8cb2b8030f29b9ce864e165bac54c",
+    "errata_not_applied": [
+      "4820 technical, 3.1.7: the ifSpeed ceiling is (2**32)-1, not (2**31)-1; prose outside the module"
+    ],
+    "optional": true
   }
 ]

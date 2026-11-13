@@ -1,11 +1,19 @@
 #!/usr/bin/env python3
 """Rebuild ``miblang/data/`` from the RFC Editor text that rfclib mirrors.
 
-    python tools/extract_bundle.py <mirror-dir>      # the directory holding rfc1155.txt, rfc2578.txt, ...
-    python tools/extract_bundle.py <mirror-dir> --check   # exit 1 when the bundle differs
+    python tools/extract_bundle.py                        # the corpus the rfclib MCP server uses
+    python tools/extract_bundle.py <mirror-dir>           # or the directory holding rfc1155.txt, rfc2578.txt, ...
+    python tools/extract_bundle.py [<mirror-dir>] --check # exit 1 when the bundle differs
 
-Each module is cut from the RFC by the line range recorded in ``MODULES`` (found by reading the RFC
-through rfclib on 2026-11-13), then stripped of page furniture (form feeds, ``[Page n]`` footers and the
+With no directory the RFC text is read from the corpus rfclib already holds, read only: ``$RFCLIB_HOME/mirror/rfc``
+when that variable is set (it is, in rfclibrary's own ``.mcp.json``, the server's configuration), else the
+``rfclibrary`` repository beside this one (``../rfclibrary/data/mirror/rfc``). Nothing there is written or
+changed. A directory that holds no ``rfc<N>.txt`` for a module named below is an error that says which path
+was looked at.
+
+Each module is cut from the RFC by the line range recorded in ``MODULES`` (the first and last line of the
+module in the RFC Editor ``.txt``, found by searching that file for the ``DEFINITIONS ::= BEGIN`` and ``END``
+lines; rfclib's own reader numbers lines differently, so its outline cannot be used for this), then stripped of page furniture (form feeds, ``[Page n]`` footers and the
 repeated ``RFC nnnn ... Month Year`` header) and de-indented. Nothing else changes: the text is the
 published text, including the errata the RFC Editor lists, which are recorded in the manifest and not
 applied. ``MANIFEST.json`` carries the sha256 of the RFC text file read, the line range, and the sha256 of
@@ -16,6 +24,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -55,7 +64,31 @@ MODULES: tuple[tuple[str, int, int, int, str, tuple[str, ...]], ...] = (
         ),
     ),
     ("SNMPv2-CONF", 2580, 150, 543, "STD 58, current", ()),
+    (
+        "SNMPv2-MIB",
+        3418,
+        104,
+        1096,
+        "STD 62, current; obsoletes RFC 1907",
+        ("276 technical: a reference-section heading outside the module",),
+    ),
+    (
+        "IF-MIB",
+        2863,
+        1423,
+        3549,
+        "Draft Standard, current; updated by RFC 8892 (registry procedures, not the module text)",
+        (
+            "4820 technical, 3.1.7: the ifSpeed ceiling is (2**32)-1, not (2**31)-1; prose outside the module",
+        ),
+    ),
 )
+
+# The modules a ``Mib`` does not hold unless asked: each defines OIDs that RFC 1213-MIB (loaded by default)
+# defines too, in another form, so loading both would report every shared descriptor twice. The manifest marks
+# them ``"optional": true``; ``bundled.default_names()`` leaves them out and ``Mib.with_bundled("IF-MIB")``
+# adds one.
+OPTIONAL = frozenset({"IF-MIB", "SNMPv2-MIB"})
 
 _FOOTER = re.compile(r"\[Page \d+\]\s*$")
 _HEADER = re.compile(
@@ -77,33 +110,45 @@ def clean(lines: list[str]) -> str:
     return "\n".join(out).strip("\n") + "\n"
 
 
+def default_mirror() -> Path:
+    """The RFC text directory of the corpus the rfclib MCP server uses, found without writing to it."""
+    home = os.environ.get("RFCLIB_HOME")
+    base = Path(home) if home else Path(__file__).resolve().parents[2] / "rfclibrary" / "data"
+    return base / "mirror" / "rfc"
+
+
 def build(mirror: Path) -> dict[str, str]:
     files: dict[str, str] = {}
     manifest = []
     for name, rfc, first, last, status, errata in MODULES:
-        raw = (mirror / f"rfc{rfc}.txt").read_bytes()
+        source = mirror / f"rfc{rfc}.txt"
+        if not source.is_file():
+            raise SystemExit(f"no RFC text at {source}: pass the directory that holds rfc{rfc}.txt")
+        raw = source.read_bytes()
         text = clean(raw.decode("latin-1").split("\n")[first - 1 : last])
         files[f"{name}.mib"] = text
-        manifest.append(
-            {
-                "module": name,
-                "rfc": rfc,
-                "status": status,
-                "lines": [first, last],
-                "rfc_txt_sha256": hashlib.sha256(raw).hexdigest(),
-                "sha256": hashlib.sha256(text.encode("ascii")).hexdigest(),
-                "errata_not_applied": list(errata),
-            }
-        )
+        entry: dict[str, object] = {
+            "module": name,
+            "rfc": rfc,
+            "status": status,
+            "lines": [first, last],
+            "rfc_txt_sha256": hashlib.sha256(raw).hexdigest(),
+            "sha256": hashlib.sha256(text.encode("ascii")).hexdigest(),
+            "errata_not_applied": list(errata),
+        }
+        if name in OPTIONAL:
+            entry["optional"] = True
+        manifest.append(entry)
     files["MANIFEST.json"] = json.dumps(manifest, indent=2) + "\n"
     return files
 
 
 def main(argv: list[str]) -> int:
-    if not argv:
+    paths = [a for a in argv if not a.startswith("--")]
+    if "--help" in argv or "-h" in argv:
         print(__doc__)
         return 2
-    files = build(Path(argv[0]))
+    files = build(Path(paths[0]) if paths else default_mirror())
     if "--check" in argv:
         bad = [
             n

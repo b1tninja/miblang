@@ -3,8 +3,8 @@
 ``tools/fetch_iana_mibs.py`` fetches the 21 modules of IANA's "IANA-Maintained MIBs" table into
 ``$MIBLANG_DATA_CACHE`` (else the user cache directory), each pinned by sha256 and size. Every test here skips,
 loudly, when the cache is absent or a file does not match its pin. Nothing from the modules is copied into the
-repository; the module that imports IANAifType-MIB below is invented for this suite, in the shape of IF-MIB's
-ifTable (RFC 2863 is not mirrored on this machine, so the real IF-MIB is not extracted, see ROADMAP.md).
+repository. The module that imports IANAifType-MIB is the real IF-MIB, bundled from RFC 2863 (``miblang.bundled``);
+tests/test_bundled.py holds the detailed end-to-end resolution test, this file the one over the whole IANA set.
 """
 
 from __future__ import annotations
@@ -17,8 +17,9 @@ from pathlib import Path
 
 import pytest
 
+from miblang import bundled
 from miblang.grammar import ModuleIdentity
-from miblang.resolve import Mib, load
+from miblang.resolve import Mib
 
 _TOOL = Path(__file__).resolve().parents[1] / "tools" / "fetch_iana_mibs.py"
 _spec = importlib.util.spec_from_file_location("fetch_iana_mibs", _TOOL)
@@ -27,61 +28,6 @@ assert _spec.loader is not None
 fetch = importlib.util.module_from_spec(_spec)
 sys.modules["fetch_iana_mibs"] = fetch
 _spec.loader.exec_module(fetch)
-
-IF_LIKE = """
-IF-LIKE-MIB DEFINITIONS ::= BEGIN
-IMPORTS
-    MODULE-IDENTITY, OBJECT-TYPE, Integer32, mib-2 FROM SNMPv2-SMI
-    DisplayString FROM SNMPv2-TC
-    IANAifType FROM IANAifType-MIB;
-
-ifLikeMIB MODULE-IDENTITY
-    LAST-UPDATED "202611130000Z"
-    ORGANIZATION "invented for this test suite"
-    CONTACT-INFO "none"
-    DESCRIPTION "An invented module shaped like the interfaces table, to import IANAifType."
-    ::= { mib-2 9999 }
-
-ifLikeTable OBJECT-TYPE
-    SYNTAX SEQUENCE OF IfLikeEntry
-    MAX-ACCESS not-accessible
-    STATUS current
-    DESCRIPTION "x"
-    ::= { ifLikeMIB 1 }
-
-ifLikeEntry OBJECT-TYPE
-    SYNTAX IfLikeEntry
-    MAX-ACCESS not-accessible
-    STATUS current
-    DESCRIPTION "x"
-    INDEX { ifLikeIndex }
-    ::= { ifLikeTable 1 }
-
-IfLikeEntry ::= SEQUENCE { ifLikeIndex Integer32, ifLikeDescr DisplayString, ifLikeType IANAifType }
-
-ifLikeIndex OBJECT-TYPE
-    SYNTAX Integer32 (1..2147483647)
-    MAX-ACCESS read-only
-    STATUS current
-    DESCRIPTION "x"
-    ::= { ifLikeEntry 1 }
-
-ifLikeDescr OBJECT-TYPE
-    SYNTAX DisplayString (SIZE (0..255))
-    MAX-ACCESS read-only
-    STATUS current
-    DESCRIPTION "x"
-    ::= { ifLikeEntry 2 }
-
-ifLikeType OBJECT-TYPE
-    SYNTAX IANAifType
-    MAX-ACCESS read-only
-    STATUS current
-    DESCRIPTION "x"
-    ::= { ifLikeEntry 3 }
-
-END
-"""
 
 
 def _cached(pin) -> Path:
@@ -151,14 +97,21 @@ def test_ianaiftype_enumeration_matches_the_text_read_independently():
     assert expected["other"] == 1
 
 
-def test_a_module_that_imports_ianaiftype_resolves_end_to_end(tmp_path):
+def test_a_module_that_imports_ianaiftype_resolves_end_to_end():
+    """The real IF-MIB (RFC 2863, bundled) against the cached IANAifType-MIB, with the whole IANA set loaded."""
     iana = _cached(_pin("IANAifType-MIB"))
-    own = tmp_path / "IF-LIKE-MIB.mib"
-    own.write_text(IF_LIKE, "ascii")
-    mib = load(own, imports=[iana])
+    mib = Mib()
+    for name in ("SNMPv2-SMI", "SNMPv2-TC", "SNMPv2-CONF", "SNMPv2-MIB", "IF-MIB"):
+        mib.add(bundled.load_module(name))
+    for path in _all():
+        mib.add_text(
+            path.read_text("ascii"),
+            path=str(path),
+            sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
+        )
     assert mib.problems == []
-    column = mib.resolve("ifLikeType")
-    assert column.oid == (1, 3, 6, 1, 2, 1, 9999, 1, 1, 3)
+    column = mib.resolve("IF-MIB::ifType")
+    assert column.oid == (1, 3, 6, 1, 2, 1, 2, 2, 1, 3)
     assert column.role == "column"
     info = column.type
     assert info is not None
@@ -166,32 +119,23 @@ def test_a_module_that_imports_ianaiftype_resolves_end_to_end(tmp_path):
     assert info.base == "INTEGER"
     assert info.textual_convention == "IANAifType"
     assert info.resolved
+    assert len(info.named_numbers) == 305
     assert dict(info.named_numbers)["ethernetCsmacd"] == 6
-    instance = mib.index("1.3.6.1.2.1.9999.1.1.3.7")
+    instance = mib.index("1.3.6.1.2.1.2.2.1.3.7")
     assert instance is not None
-    assert instance.object.name == "ifLikeType"
+    assert instance.object.name == "ifType"
     assert [v.value for v in instance.index] == [7]
-    # the answer carries the file it came from, the hash of its bytes and the module's own revision
-    answer = mib.provenance("1.3.6.1.2.1.9999.1.1.3.7")
-    assert answer.source == "file"
-    assert answer.path == str(own)
-    assert answer.sha256 == hashlib.sha256(own.read_bytes()).hexdigest()
-    assert answer.revision == "202611130000Z"
+    # the IF-MIB answer is bundled, with the manifest hash and the module's own revision; IANAifType's is a file
+    answer = mib.provenance("1.3.6.1.2.1.2.2.1.3.7")
+    assert answer.module == "IF-MIB"
+    assert answer.source == "bundled"
+    assert answer.sha256 == bundled.manifest()["IF-MIB"]["sha256"]
+    assert answer.revision == "200006140000Z"
     ianaa = mib.provenance("1.3.6.1.2.1.30")
     assert ianaa.module == "IANAifType-MIB"
     assert ianaa.path == str(iana)
     assert ianaa.sha256 == _pin("IANAifType-MIB").sha256
     assert ianaa.revision == _pin("IANAifType-MIB").last_updated
-
-
-def test_without_the_iana_module_the_import_cannot_be_resolved(tmp_path):
-    own = tmp_path / "IF-LIKE-MIB.mib"
-    own.write_text(IF_LIKE, "ascii")
-    mib = load(own)
-    info = mib.resolve("ifLikeType").type
-    assert info is not None
-    assert not info.resolved
-    assert any("IANAifType" in p for p in mib.problems)
 
 
 def test_a_changed_iana_file_is_refused_by_the_pin(tmp_path):
